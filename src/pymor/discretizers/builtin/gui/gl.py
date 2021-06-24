@@ -298,22 +298,22 @@ if config.HAVE_QT and config.HAVE_QTOPENGL and config.HAVE_GL:
 
         def paintGL(self):
             pass
-            gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
-            gl.glUseProgram(self.shaders_program)
-            gl.glUniform1i(self.colormap_location, 0)
-            gl.glActiveTexture(gl.GL_TEXTURE0 + 0)
-            gl.glBindTexture(gl.GL_TEXTURE_1D, self.colormap_id)
+            # gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
+            # gl.glUseProgram(self.shaders_program)
+            # gl.glUniform1i(self.colormap_location, 0)
+            # gl.glActiveTexture(gl.GL_TEXTURE0 + 0)
+            # gl.glBindTexture(gl.GL_TEXTURE_1D, self.colormap_id)
 
-            gl.glBegin(gl.GL_QUAD_STRIP)
-            bar_start = -1 + self.text_height / self.height() * 2
-            bar_height = (1 - 2 * self.text_height / self.height()) * 2
-            steps = 40
-            for i in range(steps + 1):
-                y = i * (1 / steps)
-                # gl.glColor(y, 0, 0)
-                gl.glVertex(-0.5, (bar_height*y + bar_start), y)
-                gl.glVertex(0.5, (bar_height*y + bar_start), y)
-            gl.glEnd()
+            # gl.glBegin(gl.GL_QUAD_STRIP)
+            # bar_start = -1 + self.text_height / self.height() * 2
+            # bar_height = (1 - 2 * self.text_height / self.height()) * 2
+            # steps = 40
+            # for i in range(steps + 1):
+            #     y = i * (1 / steps)
+            #     # gl.glColor(y, 0, 0)
+            #     gl.glVertex(-0.5, (bar_height*y + bar_start), y)
+            #     gl.glVertex(0.5, (bar_height*y + bar_start), y)
+            # gl.glEnd()
             p = QPainter(self)
             p.drawText((self.width() - self.vmax_width)/2, self.text_ascent, self.vmax_str)
             p.drawText((self.width() - self.vmin_width)/2, self.height() - self.text_height + self.text_ascent,
