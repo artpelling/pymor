@@ -258,21 +258,21 @@ if config.HAVE_QT and config.HAVE_QTOPENGL and config.HAVE_GL:
             self.setSizePolicy(QSizePolicy(QSizePolicy.Fixed, QSizePolicy.Expanding))
             self.set(U, vmin, vmax)
 
-        def resizeGL(self, w, h):
-            pass
-            gl.glViewport(0, 0, w, h)
-            gl.glLoadIdentity()
-            self.update()
+        # def resizeGL(self, w, h):
+        #     pass
+        #     gl.glViewport(0, 0, w, h)
+        #     gl.glLoadIdentity()
+        #     self.update()
 
-        def initializeGL(self):
-            pass
-            gl.glClearColor(1.0, 1.0, 1.0, 1.0)
-            self.shaders_program = link_shader_program([compile_shader(VS, vertex=True),
-                                                        compile_shader(FS, vertex=False)])
-            gl.glUseProgram(self.shaders_program)
+        # def initializeGL(self):
+        #     pass
+        #     gl.glClearColor(1.0, 1.0, 1.0, 1.0)
+        #     self.shaders_program = link_shader_program([compile_shader(VS, vertex=True),
+        #                                                 compile_shader(FS, vertex=False)])
+        #     gl.glUseProgram(self.shaders_program)
 
-            self.colormap_id = colormap_texture()
-            self.colormap_location = gl.glGetUniformLocation(self.shaders_program, 'colormap')
+        #     self.colormap_id = colormap_texture()
+        #     self.colormap_location = gl.glGetUniformLocation(self.shaders_program, 'colormap')
 
         def set(self, U=None, vmin=None, vmax=None):
             pass
