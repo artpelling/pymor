@@ -277,24 +277,24 @@ if config.HAVE_QT and config.HAVE_QTOPENGL and config.HAVE_GL:
         def set(self, U=None, vmin=None, vmax=None):
             pass
             # normalize U
-            fm = QFontMetrics(self.font())
-            self.vmin = vmin if vmin is not None else (np.min(U) if U is not None else 0.)
-            self.vmax = vmax if vmax is not None else (np.max(U) if U is not None else 1.)
-            difference = abs(self.vmin - self.vmax)
-            if difference == 0:
-                precision = 3
-            else:
-                precision = m.log(max(abs(self.vmin), abs(self.vmax)) / difference, 10) + 1
-                precision = int(min(max(precision, 3), 8))
-            self.vmin_str = format(('{:.' + str(precision) + '}').format(self.vmin))
-            self.vmax_str = format(('{:.' + str(precision) + '}').format(self.vmax))
-            self.vmin_width = fm.width(self.vmin_str)
-            self.vmax_width = fm.width(self.vmax_str)
-            self.text_height = fm.height() * 1.5
-            self.text_ascent = fm.ascent() * 1.5
-            self.text_descent = fm.descent() * 1.5
-            self.setMinimumSize(max(self.vmin_width, self.vmax_width) + 20, 300)
-            self.update()
+            # fm = QFontMetrics(self.font())
+            # self.vmin = vmin if vmin is not None else (np.min(U) if U is not None else 0.)
+            # self.vmax = vmax if vmax is not None else (np.max(U) if U is not None else 1.)
+            # difference = abs(self.vmin - self.vmax)
+            # if difference == 0:
+            #     precision = 3
+            # else:
+            #     precision = m.log(max(abs(self.vmin), abs(self.vmax)) / difference, 10) + 1
+            #     precision = int(min(max(precision, 3), 8))
+            # self.vmin_str = format(('{:.' + str(precision) + '}').format(self.vmin))
+            # self.vmax_str = format(('{:.' + str(precision) + '}').format(self.vmax))
+            # self.vmin_width = fm.width(self.vmin_str)
+            # self.vmax_width = fm.width(self.vmax_str)
+            # self.text_height = fm.height() * 1.5
+            # self.text_ascent = fm.ascent() * 1.5
+            # self.text_descent = fm.descent() * 1.5
+            # self.setMinimumSize(max(self.vmin_width, self.vmax_width) + 20, 300)
+            # self.update()
 
         def paintGL(self):
             pass
@@ -315,9 +315,9 @@ if config.HAVE_QT and config.HAVE_QTOPENGL and config.HAVE_GL:
             #     gl.glVertex(0.5, (bar_height*y + bar_start), y)
             # gl.glEnd()
             p = QPainter(self)
-            p.drawText((self.width() - self.vmax_width)/2, self.text_ascent, self.vmax_str)
-            p.drawText((self.width() - self.vmin_width)/2, self.height() - self.text_height + self.text_ascent,
-                       self.vmin_str)
+            # p.drawText((self.width() - self.vmax_width)/2, self.text_ascent, self.vmax_str)
+            # p.drawText((self.width() - self.vmin_width)/2, self.height() - self.text_height + self.text_ascent,
+            #            self.vmin_str)
             p.end()
 
 else:
