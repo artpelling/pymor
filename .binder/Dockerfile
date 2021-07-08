@@ -14,7 +14,8 @@ RUN useradd -d /home/pymor --shell /bin/bash -u ${NB_UID} -o -c "" -m ${NB_USER}
 # do local package install before requirements to avoid conflict
 COPY .binder/local_packages /pymor/local_packages/
 RUN (for i in $(find /pymor/local_packages -maxdepth 1 -mindepth 1 -type d | grep -v keepdir) ; do pip install  $i ; done) \
-  && rm -rf /pymor/local_packages
+  && rm -rf /pymor/local_packages \
+  && apt update &&  apt install -y libgl1-mesa-dev libgl1-mesa-glx
 USER ${NB_USER}
 # Workaround matplotlib segfaulting with cold cache
 RUN python -c "from matplotlib import pyplot"
@@ -23,5 +24,6 @@ ENV JUPYTER_TOKEN=${PYMOR_JUPYTER_TOKEN} \
     USER=${NB_USER} \
     HOME=/home/pymor
 
-ENTRYPOINT []
+COPY .binder/entry.bash /usr/local/bin
+ENTRYPOINT ["/usr/local/bin/entry.bash"]
 WORKDIR /pymor/
