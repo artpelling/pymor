@@ -15,7 +15,7 @@ RUN useradd -d /home/pymor --shell /bin/bash -u ${NB_UID} -o -c "" -m ${NB_USER}
 COPY .binder/local_packages /pymor/local_packages/
 RUN (for i in $(find /pymor/local_packages -maxdepth 1 -mindepth 1 -type d | grep -v keepdir) ; do pip install  $i ; done) \
   && rm -rf /pymor/local_packages
-RUN pip install ipywidgets widgetsnbextensio ipyevents jupyterlab nipyvolume pyvista ipygany k3d vedo bokeh panel itkwidgets pyvistaqt vispy ipyvtklink ipyvtk_simple plotly dash_vtk && \
+RUN pip install ipywidgets pyvistaqt ipyevents jupyterlab ipyvolume pyvista ipygany k3d vedo bokeh panel itkwidgets pyvistaqt vispy ipyvtklink ipyvtk_simple plotly dash_vtk && \
   apt update ; apt install -y libgl1-mesa-dev libgl1-mesa-glx
 USER ${NB_USER}
 # Workaround matplotlib segfaulting with cold cache

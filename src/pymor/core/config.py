@@ -107,6 +107,7 @@ _PACKAGES = {
     'PYMESS': lambda: bool(import_module('pymess')),
     'PYTEST': lambda: import_module('pytest').__version__,
     'PYTHREEJS': lambda: import_module('pythreejs._version').__version__,
+    'PYVISTA': lambda: import_module('pyvista').__version__ and import_module('ipygany').__version__,
     'PYEVTK': lambda: _can_import('pyevtk'),
     'QT': _get_qt_version,
     'QTOPENGL': lambda: bool(import_module('qtpy.QtOpenGL')),
