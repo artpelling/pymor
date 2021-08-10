@@ -105,7 +105,7 @@ if config.HAVE_QT:
                 layout.addWidget(title)
             layout.addWidget(plot)
 
-            plot.set(U, 0)
+            plot.set(U)
 
             if length > 1:
                 hlayout = QHBoxLayout()
@@ -184,7 +184,7 @@ if config.HAVE_QT:
             self.length = length
 
         def slider_changed(self, ind):
-            self.plot.set(self.U, ind)
+            self.plot.step(ind)
 
         def speed_changed(self, val):
             self.timer.setInterval(val * 20)
@@ -314,9 +314,9 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
     # TODO extract class
     class MainWindow(PlotMainWindow):
         def __init__(self, grid, U, bounding_box, codim, title, legend, separate_colorbars, rescale_colorbars, backend):
-
-            assert isinstance(U, VectorArray) \
-                or (isinstance(U, tuple) and all(isinstance(u, VectorArray) for u in U)
+            if isinstance(U, VectorArray):
+                U = (U,)
+            assert (isinstance(U, tuple) and all(isinstance(u, VectorArray) for u in U)
                     and all(len(u) == len(U[0]) for u in U))
             if isinstance(legend, str):
                 legend = (legend,)
@@ -333,12 +333,12 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
             class PlotPanel(QWidget):
                 def __init__(self):
                     super().__init__()
-                    self.vmins, self.vmaxs = vmin_vmax_vectorarray(U, separate_colorbars=separate_colorbars,
-                                                                   rescale_colorbars=rescale_colorbars)
                     layout = QHBoxLayout()
                     plot_layout = QGridLayout()
-                    plots = [widget(self, grid, vmin=vmin, vmax=vmax, bounding_box=bounding_box, codim=codim)
-                             for vmin, vmax in zip(self.vmins, self.vmaxs)]
+                    limits = vmin_vmax_vectorarray(U, separate_colorbars=separate_colorbars,
+                                                   rescale_colorbars=rescale_colorbars)
+                    plots = [widget(parent=self, U=u, limits=limits, grid=grid, bounding_box=bounding_box, codim=codim)
+                             for u in U]
                     if legend:
                         for i, plot, l in zip(range(len(plots)), plots, legend):
                             subplot_layout = QVBoxLayout()
@@ -364,17 +364,16 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
                     self.setLayout(layout)
                     self.plots = plots
 
-                def set(self, U, ind):
-                    if rescale_colorbars:
-                        if separate_colorbars:
-                            self.vmins = tuple(np.min(u[ind]) for u in U)
-                            self.vmaxs = tuple(np.max(u[ind]) for u in U)
-                        else:
-                            self.vmins = (min(np.min(u[ind]) for u in U),) * len(U)
-                            self.vmaxs = (max(np.max(u[ind]) for u in U),) * len(U)
+                def set(self, U):
+                    self.U = U
+                    limits = vmin_vmax_vectorarray(U, separate_colorbars=separate_colorbars,
+                                                   rescale_colorbars=rescale_colorbars)
+                    for u, plot in zip(self.U, self.plots):
+                        plot.set(u, limits=limits)
 
-                    for u, plot, vmin, vmax in zip(U, self.plots, self.vmins, self.vmaxs):
-                        plot.set(u[ind], vmin=vmin, vmax=vmax)
+                def step(self, ind):
+                    for plot in self.plots:
+                        plot.step(ind)
 
             super().__init__(U, PlotPanel(), title=title, length=len(U[0]))
             self.grid = grid

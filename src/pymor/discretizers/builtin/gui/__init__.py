@@ -26,6 +26,35 @@ def vmin_vmax_numpy(U, separate_colorbars, rescale_colorbars):
 
 
 def vmin_vmax_vectorarray(U, separate_colorbars, rescale_colorbars):
-    Unp = (U.to_numpy().astype(np.float64, copy=False),) if isinstance(U, VectorArray) else \
-        tuple(u.to_numpy().astype(np.float64, copy=False) for u in U)
-    return vmin_vmax_numpy(Unp, separate_colorbars=separate_colorbars, rescale_colorbars=rescale_colorbars)
+    """
+    Parameters
+    ----------
+    separate_colorbars
+        iff True, min/max are taken per element of the U tuple
+
+    rescale_colorbars
+        iff False, min/max are the same for all indices for all elements of the U tuple
+    """
+    assert isinstance(U, tuple)
+    limits = {}
+    ind_count = len(U[0])
+    tuple_size = len(U)
+    mins, maxs = [None] * ind_count
+    for ind in range(ind_count):
+        mins[ind] = (np.min(u[ind]) for u in U)
+        maxs[ind] = (np.max(u[ind]) for u in U)
+
+    for ind in range(ind_count):
+        if rescale_colorbars:
+            if separate_colorbars:
+                limits[ind] = tuple(mins[ind]), tuple(maxs[ind])
+            else:
+                limits[ind] = min(mins) * tuple_size, max(maxs) * tuple_size
+        else:
+            if separate_colorbars:
+                limits[ind] = (tuple(),
+                               tuple(np.max(u[ind]) for u in U))
+            else:
+                limits[ind] = ((min(np.min(u) for u in U),) * len(U),
+                               (max(np.max(u[ind]) for u in U),) * len(U))
+    return limits
