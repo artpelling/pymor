@@ -330,7 +330,7 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
                 widget = MatplotlibPatchWidget
                 separate_colorbars = True
 
-            class PlotWidget(QWidget):
+            class PlotPanel(QWidget):
                 def __init__(self):
                     super().__init__()
                     self.vmins, self.vmaxs = vmin_vmax_vectorarray(U, separate_colorbars=separate_colorbars,
@@ -376,7 +376,7 @@ def visualize_patch(grid, U, bounding_box=([0, 0], [1, 1]), codim=2, title=None,
                     for u, plot, vmin, vmax in zip(U, self.plots, self.vmins, self.vmaxs):
                         plot.set(u[ind], vmin=vmin, vmax=vmax)
 
-            super().__init__(U, PlotWidget(), title=title, length=len(U[0]))
+            super().__init__(U, PlotPanel(), title=title, length=len(U[0]))
             self.grid = grid
             self.codim = codim
 
