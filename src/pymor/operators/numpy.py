@@ -15,14 +15,15 @@ This module provides the following |NumPy|-based |Operators|:
 
 from functools import reduce
 
+from math import ceil
 import numpy as np
+from numpy.fft import fft, ifft
 from scipy.io import mmwrite, savemat
 from scipy.linalg import solve
 import scipy.sparse
 from scipy.sparse import issparse
 
 from pymor.core.base import abstractmethod
-from pymor.core.config import config
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError
 from pymor.core.logger import getLogger
@@ -396,3 +397,53 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         else:
             matrix_repr = f'<{self.range.dim}x{self.source.dim} dense>'
         return super()._format_repr(max_width, verbosity, override={'matrix': matrix_repr})
+
+
+class NumpyHankelOperator(NumpyGenericOperator):
+    def __init__(self, markov_parameters, source_id=None, range_id=None, solver_options=None, name=None):
+        markov_parameters = np.squeeze(markov_parameters)
+        assert markov_parameters.ndim == 1
+        try:
+            markov_parameters.setflags(write=False)  # make numpy arrays read-only
+        except AttributeError:
+            pass
+
+        self.__auto_init(locals())
+        self.source = NumpyVectorSpace(ceil(len(markov_parameters) / 2), source_id)
+        self.range = NumpyVectorSpace(ceil(len(markov_parameters) / 2), range_id)
+        self.linear = True
+        self._circulant = self._calc_circulant()
+
+    def apply(self, U, mu=None):
+        assert U in self.source
+        U = U.to_numpy().T
+        k = U.shape[1]
+        x = np.concatenate([np.flip(U, axis=0), np.zeros([self.source.dim, k])])
+        y = np.real(ifft(fft(x, axis=0,) * self._circulant, axis=0))
+        return self.range.make_array(y[: self.source.dim].T)
+
+    def apply_adjoint(self, V, mu=None):
+        assert V in self.range
+        return self.H.apply(V, mu=mu)
+
+    def _calc_circulant(self):
+        pad = len(self.markov_parameters) % 2
+        c = np.roll(
+            np.concatenate([np.zeros(pad), self.markov_parameters], axis=-1,),
+            self.source.dim + 1 - pad,
+            axis=-1,
+        )
+        return fft(c).reshape(-1, 1)
+
+    @property
+    def H(self):
+        if np.isrealobj(self.markov_parameters):
+            adjoint_markov_parameters = self.markov_parameters
+        else:
+            adjoint_markov_parameters = self.markov_parameters.conj()
+        return self.with_(
+            markov_parameters=adjoint_markov_parameters,
+            source_id=self.range_id,
+            range_id=self.source_id,
+            name=self.name + "_adjoint",
+        )
