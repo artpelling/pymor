@@ -13,7 +13,7 @@ from pymor.operators.block import BlockOperatorBase
 from pymor.operators.constructions import (AdjointOperator, ComponentProjectionOperator, ConcatenationOperator,
                                            IdentityOperator, LincombOperator, LowRankOperator, LowRankUpdatedOperator,
                                            VectorArrayOperator, ZeroOperator)
-from pymor.operators.numpy import NumpyMatrixOperator
+from pymor.operators.numpy import NumpyHankelOperator, NumpyMatrixOperator
 
 
 def to_matrix(op, format=None, mu=None):
@@ -46,6 +46,18 @@ class ToMatrixRules(RuleTable):
     def __init__(self, format, mu):
         super().__init__()
         self.__auto_init(locals())
+
+    @match_class(NumpyHankelOperator)
+    def action_NumpyHankelOperator(self, op):
+        format = self.format
+        r, c = np.array_split(op.markov_parameters, 2)
+        op_matrix = spla.hankel(r, np.concatenate([c, np.zeros(len(r)-len(c))]))
+        if format is None:
+            return op_matrix
+        elif format == 'dense':
+            return op_matrix
+        else:
+            raise NotImplementedError
 
     @match_class(NumpyMatrixOperator)
     def action_NumpyMatrixOperator(self, op):
