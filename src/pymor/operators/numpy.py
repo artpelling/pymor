@@ -430,7 +430,7 @@ class NumpyHankelOperator(NumpyGenericOperator):
         pad = len(self.markov_parameters) % 2
         c = np.roll(
             np.concatenate([np.zeros(pad), self.markov_parameters]),
-            self.source.dim + 1 - pad,
+            len(self.markov_parameters) // 2 + 1,
         )
         return fft(c).reshape(-1, 1)
 
