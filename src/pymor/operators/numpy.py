@@ -427,9 +427,10 @@ class NumpyHankelOperator(NumpyGenericOperator):
         return self.H.apply(V, mu=mu)
 
     def _calc_circulant(self):
-        pad = len(self.markov_parameters) % 2
         c = np.roll(
-            np.concatenate([np.zeros(pad), self.markov_parameters]),
+            np.concatenate(
+                [np.zeros(len(self.markov_parameters) % 2), self.markov_parameters]
+            ),
             len(self.markov_parameters) // 2 + 1,
         )
         return fft(c).reshape(-1, 1)
