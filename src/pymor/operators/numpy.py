@@ -14,8 +14,8 @@ This module provides the following |NumPy|-based |Operators|:
 """
 
 from functools import reduce
-
 from math import ceil
+
 import numpy as np
 from numpy.fft import fft, ifft
 from scipy.io import mmwrite, savemat
