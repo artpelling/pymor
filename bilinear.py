@@ -1,5 +1,6 @@
 from pymor.models.iosys import LTIModel
 from pymor.reductors.bt import BTReductor
+from pymor.algorithms.to_matrix import to_matrix
 import scipy.linalg as spla
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,7 +17,7 @@ def moebius_transform(sys, a, b, c, d, sampling_time=0):
         A = sys.A.matrix
         B = sys.B.matrix
         C = sys.C.matrix
-        D = sys.D.matrix
+        D = to_matrix(sys.D)
         n = A.shape[0]
         I = np.eye(n)
 
@@ -43,9 +44,9 @@ def d2c(sys):
 
 
 def calc_p(fs, method="peak"):
-    if method=="peak":
+    if method == "peak":
         return 1.0674 * np.sqrt(2 / np.pi * np.arctan(0.00006583 * fs)) - 0.1916
-    elif method=="slope":
+    elif method == "slope":
         return 1.0480 * np.sqrt(2 / np.pi * np.arctan(0.00007212 * fs)) - 0.1957
 
 
@@ -93,8 +94,8 @@ freqs = np.array([
 
 # load
 iss = LTIModel.from_mat_file("iss1R.mat")
-#A, B, C, D, _ = iss.to_matrices()
-#iss = LTIModel.from_matrices(A, B[:, 0].reshape(-1, 1), C[0].reshape(1, -1), D[0, 0].reshape(1, 1))
+# A, B, C, D, _ = iss.to_matrices()
+# iss = LTIModel.from_matrices(A, B[:, 0].reshape(-1, 1), C[0].reshape(1, -1), D[0, 0].reshape(1,1))
 
 # params
 r = 8
@@ -131,7 +132,7 @@ r1h.transfer_function.mag_plot(fd, color="b", **plot_opts)
 r2h.transfer_function.mag_plot(fd, color="r", linestyle=":", **plot_opts)
 plt.xlim(flim)
 plt.ylim([-95, -20])
-plt.savefig("fig1.png")
+plt.savefig("../../talks/mpi-csc22/figures/bilinear-hz.png")
 
 plot_opts = {"Hz": True, "dB": True}
 fig, ax = plt.subplots()
@@ -142,4 +143,4 @@ ax.set_xscale('linear')
 plt.xlabel("Frequency (Bark)")
 plt.xlim(blim)
 plt.ylim([-95, -20])
-plt.savefig("fig2.png")
+plt.savefig("../../talks/mpi-csc22/figures/bilinear-bark.png")
