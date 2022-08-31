@@ -58,7 +58,9 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
         A = A.copy()
 
     # main loop
-    R = np.eye(len(A))
+    if return_R:
+        R = np.eye(len(A))
+
     remove = []  # indices of to be removed vectors
     for i in range(offset, len(A)):
         # first calculate norm
@@ -71,7 +73,8 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
 
         if i == 0:
             A[0].scal(1 / initial_norm)
-            R[i, i] = initial_norm
+            if return_R:
+                R[i, i] = initial_norm
         else:
             norm = initial_norm
             # If reiterate is True, reiterate as long as the norm of the vector changes
@@ -83,9 +86,10 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
                         continue
                     p = A[j].pairwise_inner(A[i], product)[0]
                     A[i].axpy(-p, A[j])
-                    common_dtype = np.promote_types(R.dtype, type(p))
-                    R = R.astype(common_dtype, copy=False)
-                    R[j, i] += p
+                    if return_R:
+                        common_dtype = np.promote_types(R.dtype, type(p))
+                        R = R.astype(common_dtype, copy=False)
+                        R[j, i] += p
 
                 # calculate new norm
                 old_norm, norm = norm, A[i].norm(product)[0]
@@ -101,12 +105,14 @@ def gram_schmidt(A, product=None, return_R=False, atol=1e-13, rtol=1e-13, offset
                     logger.info(f"Orthonormalizing vector {i} again")
                 else:
                     A[i].scal(1 / norm)
-                    R[i, i] = norm
+                    if return_R:
+                        R[i, i] = norm
                     break
 
     if remove:
         del A[remove]
-        R = np.delete(R, remove, axis=0)
+        if return_R:
+            R = np.delete(R, remove, axis=0)
 
     if check:
         error_matrix = A[offset:len(A)].inner(A, product)
