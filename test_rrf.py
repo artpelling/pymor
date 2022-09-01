@@ -64,3 +64,6 @@ class RandomizedSubspaceIterator(BasicObject):
 
         self.l += n
         return self.Q[-1].to_numpy().T
+
+
+RSI = RandomizedSubspaceIterator(X, 0)
