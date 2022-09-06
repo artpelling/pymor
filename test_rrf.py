@@ -51,7 +51,7 @@ class RandomizedSubspaceIterator(BasicObject):
         for i in range(self.q):
             i = 2*i + 1
             self.Q[i].append(self.source_product.apply_inverse(
-                (self.A.apply_adjoint(self.range_product.apply(self.Q[0][-n:])))))
+                (self.A.apply_adjoint(self.range_product.apply(self.Q[i-1][-n:])))))
             gram_schmidt(self.Q[i], self.source_product, offset=self.l, copy=False)
             self.Q[i+1].append(self.A.apply(self.Q[i][-n:]))
             gram_schmidt(self.Q[i+1], self.range_product, offset=self.l, copy=False)
@@ -60,23 +60,22 @@ class RandomizedSubspaceIterator(BasicObject):
         return self.Q[-1].to_numpy().T
 
 from pymor.tools.random import new_rng
-from pymor.core.defaults import print_defaults, set_defaults
-set_defaults({"pymor.algorithms.gram_schmidt.gram_schmidt.atol": 0, "pymor.algorithms.gram_schmidt.gram_schmidt.rtol": 0})
 
 A = np.random.rand(5, 3)
 u = np.random.rand(5, 1)
 V = NumpyVectorSpace.from_numpy(A.T)
 X = NumpyMatrixOperator(A)
 
-
-RSI = RandomizedSubspaceIterator(X, 2)
+q = 5
+RSI = RandomizedSubspaceIterator(X, q)
 
 
 
 with new_rng(0):
-    Q = RSI.sample(3)
+    Q = RSI.sample(2)
+    Q = RSI.sample(1)
     print(Q.T)
 
 with new_rng(0):
-    Q = rrf(X, q=2, l=3)
+    Q = rrf(X, q=q, l=3)
     print(Q)
