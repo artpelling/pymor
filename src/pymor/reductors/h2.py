@@ -101,14 +101,18 @@ class GenericIRKAReductor(BasicObject):
         return sigma, b, c
 
     @staticmethod
-    def _rom_to_sigma_b_c(rom, force_sigma_in_rhp):
-        poles, b, c = _lti_to_poles_b_c(rom)
-        sigma = (np.abs(poles.real) + poles.imag * 1j
-                 if force_sigma_in_rhp
-                 else -poles)
+    def _rom_to_sigma_b_c(rom, force_sigma_in_rhp, sampling_time=0):
+        if sampling_time > 0:
+            poles, b, c = _lti_to_poles_b_c(rom)
+            sigma = 1/np.conjugate(poles)
+        else:
+            poles, b, c = _lti_to_poles_b_c(rom)
+            sigma = (np.abs(poles.real) + poles.imag * 1j
+                     if force_sigma_in_rhp
+                     else -poles)
         return sigma, b, c
 
-    def _rom0_params_to_sigma_b_c(self, rom0_params, force_sigma_in_rhp):
+    def _rom0_params_to_sigma_b_c(self, rom0_params, force_sigma_in_rhp, sampling_time=0):
         self.logger.info('Generating initial interpolation data')
         self._check_rom0_params(rom0_params)
         if isinstance(rom0_params, Integral):
@@ -121,7 +125,7 @@ class GenericIRKAReductor(BasicObject):
             b = rom0_params['b']
             c = rom0_params['c']
         else:
-            sigma, b, c = self._rom_to_sigma_b_c(rom0_params, force_sigma_in_rhp)
+            sigma, b, c = self._rom_to_sigma_b_c(rom0_params, force_sigma_in_rhp, sampling_time)
         return sigma, b, c
 
     def _rom0_params_to_rom(self, rom0_params):
@@ -622,26 +626,10 @@ class TFIRKAReductor(GenericIRKAReductor):
         """
         if self.fom.sampling_time > 0: #discrete time
             self._clear_lists()
-            
-            self.logger.info('Generating initial interpolation data')
-            self._check_rom0_params(rom0_params)
-            if isinstance(rom0_params, Integral):
-                sigma, b, c = self._order_to_sigma_b_c(rom0_params)
-            elif isinstance(rom0_params, np.ndarray):
-                sigma = rom0_params
-                _, b, c = self._order_to_sigma_b_c(len(rom0_params))
-            elif isinstance(rom0_params, dict):
-                sigma = rom0_params['sigma']
-                b = rom0_params['b']
-                c = rom0_params['c']
-            else:
-                poles, b, c = _lti_to_poles_b_c(rom0_params)
-                sigma  = poles.real + poles.imag * 1j
-                #sigma = 1/np.conjugate(sigma)
-            return sigma, b, c
-            #sigma, b, c = self._rom0_params_to_sigma_b_c(rom0_params, force_sigma_in_rhp)
+            sigma, b, c = self._rom0_params_to_sigma_b_c(rom0_params, force_sigma_in_rhp, self.fom.sampling_time)
             self._store_sigma_b_c(sigma, b, c)
             self._check_common_args(tol, maxit, num_prev, conv_crit)
+    
             self.logger.info('Starting TF-IRKA')
             self._conv_data = (num_prev + 1) * [None]
             if conv_crit == 'sigma':
@@ -649,12 +637,7 @@ class TFIRKAReductor(GenericIRKAReductor):
             interp_reductor = TFBHIReductor(self.fom, mu=self.mu)
             for it in range(maxit):
                 rom = interp_reductor.reduce(sigma, b, c)
-                poles, b, c = _lti_to_poles_b_c(rom)
-                sigma  = poles.real + poles.imag * 1j
-                # Here we have the new iteration for updating the interpolation 
-                # points in the discrete-time setting
-                sigma = 1/np.conjugate(sigma)  # Most important change
-                #sigma, b, c = self._rom_to_sigma_b_c(rom, force_sigma_in_rhp)
+                sigma, b, c = self._rom_to_sigma_b_c(rom, force_sigma_in_rhp, self.fom.sampling_time)
                 self._store_sigma_b_c(sigma, b, c)
                 self._update_conv_data(sigma, rom, conv_crit)
                 self._compute_conv_crit(rom, conv_crit, it)
