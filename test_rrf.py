@@ -18,7 +18,7 @@ set_log_levels({'pymor.algorithms.gram_schmidt': 'ERROR'})
 
 
 class RandomizedSubspaceIterator(BasicObject):
-    def __init__(self, A, subspace_iterations=0, source_product=None, range_product=None, complex=False):
+    def __init__(self, A, subspace_iterations=0, range_product=None, source_product=None, lambda_min=None, complex=False):
         assert isinstance(A, Operator)
         if range_product is None:
             range_product = IdentityOperator(A.range)
@@ -31,7 +31,7 @@ class RandomizedSubspaceIterator(BasicObject):
             assert isinstance(source_product, Operator)
 
         assert 0 <= subspace_iterations and isinstance(subspace_iterations, int)
-        # TODO        assert isinstance(complex, bool)
+        assert isinstance(complex, bool)
 
         self.__auto_init(locals())
         self._l = 0
@@ -40,8 +40,7 @@ class RandomizedSubspaceIterator(BasicObject):
             self._Q.append(self.A.source.empty())
             self._Q.append(self.A.range.empty())
         self._Q = tuple(self._Q)
-        self._test_seed_seq, sample_seed_seq = get_seed_seq().spawn(1)[0]
-        self._sample_rng = new_rng(sample_seed_seq)
+        self._test_seed_real, self._test_seed_imag = get_seed_seq().spawn(1)[0]
 
     @cached
     def _lambda_min(self):
@@ -61,24 +60,28 @@ class RandomizedSubspaceIterator(BasicObject):
 
     @cached
     def _maxnorm(self, n):
-        with new_rng(self._test_seed_seq):
+        with new_rng(self._test_seed_real):
             W = self.A.source.random(n)
+        if self.complex:
+            with new_rng(self._test_seed_imag):
+                W += 1j * self.A.source.random(n)
         Q = self.find_range(n, tol=None)
         W -= Q.lincomb(Q.inner(W, self.range_product).T)
         return np.max(W.norm(self.range_product))
 
     @cached
+    def _c_est(self, n, p_fail):
+        return 1 /  (np.sqrt(2 * self._lambda_min()) * erfinv((p_fail / min(self.A.source.dim, self.A.range.dim)) ** (1 / n)))
+
     def estimate_error(self, n, p_fail):
-        c_est = np.sqrt(2 * self._lambda_min) * erfinv((p_fail / min(self.A.source.dim, self.A.range.dim)) ** (1 / n))
-        return 1 / c_est * self._maxnorm(n)
+        return self._c_est(n, p_fail) * self._maxnorm(n)
 
     def _extend_basis(self, n=1):
         assert 0 <= n and isinstance(n, int)
         if (n + self._l) > min(self.A.source.dim, self.A.range.dim):
             print('warn')
 
-        with self._sample_rng:
-            W = self.A.source.random(n, distribution='normal')
+        W = self.A.source.random(n, distribution='normal')
 
         self._Q[0].append(self.A.apply(W))
         gram_schmidt(self._Q[0], self.range_product, offset=self._l, copy=False)
