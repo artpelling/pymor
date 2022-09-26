@@ -76,7 +76,7 @@ class RandomizedRangeFinder(CacheableObject):
         if len(self.testvecs) < num_testvecs:
             self._draw_test_vector(num_testvecs - len(self.testvecs))
 
-        W, Q = self.testvecs[:num_testvecs], self.find_range(basis_size=basis_size, tol=None)
+        W, Q = self.testvecs[:num_testvecs].copy(), self._find_range(basis_size=basis_size, tol=None)
         W -= Q.lincomb(Q.inner(W, self.range_product).T)
         return np.max(W.norm(self.range_product))
 
@@ -87,16 +87,21 @@ class RandomizedRangeFinder(CacheableObject):
         return 1 / c
 
     def estimate_error(self, basis_size, num_testvecs=20, p_fail=1e-14):
+        assert isinstance(basis_size, int) and basis_size > 0
+        if basis_size > min(self.A.source.dim, self.A.range.dim):
+            self.logger.warning('Requested basis is larger than the rank of the operator!')
+            self.logger.info('Proceeding with maximum operator rank...')
+            basis_size = min(self.A.source.dim, self.A.range.dim)
         assert 0 < num_testvecs and isinstance(num_testvecs, int)
         assert 0 < p_fail
 
         err = self._c_est(num_testvecs, p_fail) * self._maxnorm(basis_size, num_testvecs)
-        self.logger.info(f'estimated error: {err:.2f}')
+        self.logger.info(f'estimated error: {err:.10f}')
 
         return err
 
     def _extend_basis(self, n=1):
-        self.logger.info(f'Appending {n} basis vector{"s" if n > 1 else ""}...')
+        self.logger.info(f'Appending {n} basis vector{"s" if n > 1 else ""}.')
 
         with self._basis_rng_real:
             W = self.A.source.random(n, distribution='normal')
@@ -117,34 +122,62 @@ class RandomizedRangeFinder(CacheableObject):
 
         self._l += n
 
-    def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, block_size=8, increase_block=True):
+    def _find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, block_size=8, increase_block=True,
+                    max_basis_size=500):
+        if basis_size > self._l:
+            self._extend_basis(basis_size - self._l)
+
+        if tol is not None and self.estimate_error(basis_size, num_testvecs, p_fail) > tol:
+            with self.logger.block('Extending range basis adaptively...'):
+                max_iter = min(max_basis_size, self.A.source.dim, self.A.range.dim)
+                while self._l < max_iter:
+                    if increase_block:
+                        low = basis_size
+                        basis_size += block_size
+                        block_size *= 2
+                    else:
+                        basis_size += block_size
+                    basis_size = min(basis_size, max_iter)
+                    if self.estimate_error(basis_size, num_testvecs, p_fail) <= tol:
+                        break
+            if increase_block:
+                with self.logger.block('Contracting range basis...'):
+                    high = basis_size
+                    while True:
+                        mid = high - (high - low) // 2
+                        if basis_size == mid:
+                            break
+                        basis_size = mid
+                        err = self.estimate_error(basis_size, num_testvecs, p_fail)
+                        if err <= tol:
+                            high = mid
+                        else:
+                            low = mid
+
+        return self._Q[-1][:basis_size]
+
+    def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, block_size=8, increase_block=True,
+                   max_basis_size=500):
         assert isinstance(basis_size, int) and basis_size > 0
         if basis_size > min(self.A.source.dim, self.A.range.dim):
-            self.logger.warning('Basis is larger than the rank of the operator!')
+            self.logger.warning('Requested basis is larger than the rank of the operator!')
+            self.logger.info('Proceeding with maximum operator rank...')
             basis_size = min(self.A.source.dim, self.A.range.dim)
         assert tol is None or tol > 0
         assert isinstance(num_testvecs, int) and num_testvecs > 0
         assert p_fail > 0
         assert isinstance(block_size, int) and block_size > 0
         assert isinstance(increase_block, bool)
+        assert isinstance(max_basis_size, int) and max_basis_size > 0
 
-        if basis_size > self._l:
-            self._extend_basis(basis_size - self._l)
-
-        if tol is None or self.estimate_error(basis_size, num_testvecs, p_fail) <= tol:
-            return self._Q[-1][:basis_size]
-        else:
-            with self.logger.block('Extending range basis adaptively...'):
-                while self._l < min(self.A.source.dim, self.A.range.dim):
-                    basis_size += block_size
-                    if self.estimate_error(basis_size, num_testvecs, p_fail) <= tol:
-                        break
-                    if increase_block:
-                        block_size *= 2
-            return self.find_range(basis_size=basis_size, tol=None)
+        with self.logger.block('Finding range...'):
+            Q = self._find_range(basis_size=basis_size, tol=tol, num_testvecs=num_testvecs, p_fail=p_fail,
+                                 block_size=block_size, increase_block=increase_block, max_basis_size=max_basis_size)
+            self.logger.info(f'Found range of dimension {len(Q)}.')
+        return Q
 
 
-n = 1000
+n = 10000
 with new_rng(0) as RNG:
     B = RNG.random((n, n))
 V = NumpyVectorSpace.from_numpy(B)
@@ -152,8 +185,8 @@ X = NumpyMatrixOperator(B)
 
 q = 0
 l = 1
-tol = 32
+tol = 15200
 p_fail = 1e-12
 with new_rng(0):
     RSI = RandomizedRangeFinder(X, subspace_iterations=q)
-    Q1 = RSI.find_range(basis_size=l, tol=tol, p_fail=p_fail)
+    Q1 = RSI.find_range(basis_size=l, tol=tol, p_fail=p_fail, num_testvecs=20)
