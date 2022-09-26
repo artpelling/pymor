@@ -101,18 +101,17 @@ class GenericIRKAReductor(BasicObject):
         return sigma, b, c
 
     @staticmethod
-    def _rom_to_sigma_b_c(rom, force_sigma_in_rhp, sampling_time=0):
-        if sampling_time > 0:
-            poles, b, c = _lti_to_poles_b_c(rom)
+    def _rom_to_sigma_b_c(rom, force_sigma_in_rhp):
+        poles, b, c = _lti_to_poles_b_c(rom)
+        if rom.sampling_time > 0:
             sigma = 1/np.conjugate(poles)
         else:
-            poles, b, c = _lti_to_poles_b_c(rom)
             sigma = (np.abs(poles.real) + poles.imag * 1j
                      if force_sigma_in_rhp
                      else -poles)
         return sigma, b, c
 
-    def _rom0_params_to_sigma_b_c(self, rom0_params, force_sigma_in_rhp, sampling_time=0):
+    def _rom0_params_to_sigma_b_c(self, rom0_params, force_sigma_in_rhp):
         self.logger.info('Generating initial interpolation data')
         self._check_rom0_params(rom0_params)
         if isinstance(rom0_params, Integral):
@@ -125,7 +124,7 @@ class GenericIRKAReductor(BasicObject):
             b = rom0_params['b']
             c = rom0_params['c']
         else:
-            sigma, b, c = self._rom_to_sigma_b_c(rom0_params, force_sigma_in_rhp, sampling_time)
+            sigma, b, c = self._rom_to_sigma_b_c(rom0_params, force_sigma_in_rhp)
         return sigma, b, c
 
     def _rom0_params_to_rom(self, rom0_params):
@@ -624,48 +623,25 @@ class TFIRKAReductor(GenericIRKAReductor):
         rom
             Reduced |LTIModel| model.
         """
-        if self.fom.sampling_time > 0: #discrete time
-            self._clear_lists()
-            sigma, b, c = self._rom0_params_to_sigma_b_c(rom0_params, force_sigma_in_rhp, self.fom.sampling_time)
-            self._store_sigma_b_c(sigma, b, c)
-            self._check_common_args(tol, maxit, num_prev, conv_crit)
-    
-            self.logger.info('Starting TF-IRKA')
-            self._conv_data = (num_prev + 1) * [None]
-            if conv_crit == 'sigma':
-                self._conv_data[0] = sigma
-            interp_reductor = TFBHIReductor(self.fom, mu=self.mu)
-            for it in range(maxit):
-                rom = interp_reductor.reduce(sigma, b, c)
-                sigma, b, c = self._rom_to_sigma_b_c(rom, force_sigma_in_rhp, self.fom.sampling_time)
-                self._store_sigma_b_c(sigma, b, c)
-                self._update_conv_data(sigma, rom, conv_crit)
-                self._compute_conv_crit(rom, conv_crit, it)
-                self._compute_error(rom, it, compute_errors)
-                if self.conv_crit[-1] < tol:
-                    break
+        self._clear_lists()
+        sigma, b, c = self._rom0_params_to_sigma_b_c(rom0_params, force_sigma_in_rhp)
+        self._store_sigma_b_c(sigma, b, c)
+        self._check_common_args(tol, maxit, num_prev, conv_crit)
 
-        
-        else: #continuous time
-            self._clear_lists()
-            sigma, b, c = self._rom0_params_to_sigma_b_c(rom0_params, force_sigma_in_rhp)
+        self.logger.info('Starting TF-IRKA')
+        self._conv_data = (num_prev + 1) * [None]
+        if conv_crit == 'sigma':
+            self._conv_data[0] = sigma
+        interp_reductor = TFBHIReductor(self.fom, mu=self.mu)
+        for it in range(maxit):
+            rom = interp_reductor.reduce(sigma, b, c)
+            sigma, b, c = self._rom_to_sigma_b_c(rom, force_sigma_in_rhp)
             self._store_sigma_b_c(sigma, b, c)
-            self._check_common_args(tol, maxit, num_prev, conv_crit)
-    
-            self.logger.info('Starting TF-IRKA')
-            self._conv_data = (num_prev + 1) * [None]
-            if conv_crit == 'sigma':
-                self._conv_data[0] = sigma
-            interp_reductor = TFBHIReductor(self.fom, mu=self.mu)
-            for it in range(maxit):
-                rom = interp_reductor.reduce(sigma, b, c)
-                sigma, b, c = self._rom_to_sigma_b_c(rom, force_sigma_in_rhp)
-                self._store_sigma_b_c(sigma, b, c)
-                self._update_conv_data(sigma, rom, conv_crit)
-                self._compute_conv_crit(rom, conv_crit, it)
-                self._compute_error(rom, it, compute_errors)
-                if self.conv_crit[-1] < tol:
-                    break
+            self._update_conv_data(sigma, rom, conv_crit)
+            self._compute_conv_crit(rom, conv_crit, it)
+            self._compute_error(rom, it, compute_errors)
+            if self.conv_crit[-1] < tol:
+                break
 
         return rom
 
