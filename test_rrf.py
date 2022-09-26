@@ -1,15 +1,14 @@
 #!/usr/bin/env python3
 import numpy as np
-from pymor.core.base import BasicObject
+
 from pymor.algorithms.gram_schmidt import gram_schmidt
-from pymor.algorithms.rand_la import InverseOperator, rrf
-from pymor.core.cache import cached
+from pymor.core.cache import CacheableObject, cached
 from pymor.operators.interface import Operator
 from pymor.operators.constructions import IdentityOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 from pymor.core.logger import set_log_levels
-from src.pymor.tools.random import get_seed_seq, new_rng
+from pymor.tools.random import get_seed_seq, new_rng
 
 from scipy.sparse.linalg import eigsh, LinearOperator
 from scipy.special import erfinv
@@ -17,8 +16,9 @@ from scipy.special import erfinv
 set_log_levels({'pymor.algorithms.gram_schmidt': 'ERROR'})
 
 
-class RandomizedSubspaceIterator(BasicObject):
-    def __init__(self, A, subspace_iterations=0, range_product=None, source_product=None, lambda_min=None, complex=False):
+class RandomizedRangeFinder(CacheableObject):
+    def __init__(self, A, subspace_iterations=0, range_product=None, source_product=None, lambda_min=None,
+                 complex=False):
         assert isinstance(A, Operator)
         if range_product is None:
             range_product = IdentityOperator(A.range)
@@ -40,48 +40,69 @@ class RandomizedSubspaceIterator(BasicObject):
             self._Q.append(self.A.source.empty())
             self._Q.append(self.A.range.empty())
         self._Q = tuple(self._Q)
-        self._test_seed_real, self._test_seed_imag = get_seed_seq().spawn(1)[0]
+        self.testvecs = self.A.source.empty()
+        self._basis_rng_real = new_rng(get_seed_seq().spawn(1)[0])
+        self._test_rng_real = new_rng(get_seed_seq().spawn(1)[0])
+        if complex:
+            self._basis_rng_imag = new_rng(get_seed_seq().spawn(1)[0])
+            self._test_rng_imag = new_rng(get_seed_seq().spawn(1)[0])
 
     @cached
     def _lambda_min(self):
-        if self.source_product is None:
+        if isinstance(self.source_product, IdentityOperator):
             return 1
         elif self.lambda_min is None:
-            def mv(v):
-                return self.source_product.apply(self.source_product.source.from_numpy(v)).to_numpy()
+            with self.logger.block('Estimating minimum singular value of source_product...'):
+                def mv(v):
+                    return self.source_product.apply(self.source_product.source.from_numpy(v)).to_numpy()
 
-            def mvinv(v):
-                return self.source_product.apply_inverse(self.source_product.range.from_numpy(v)).to_numpy()
-            L = LinearOperator((self.source_product.source.dim, self.source_product.range.dim), matvec=mv)
-            Linv = LinearOperator((self.source_product.range.dim, self.source_product.source.dim), matvec=mvinv)
-            return eigsh(L, sigma=0, which="LM", return_eigenvectors=False, k=1, OPinv=Linv)[0]
+                def mvinv(v):
+                    return self.source_product.apply_inverse(self.source_product.range.from_numpy(v)).to_numpy()
+                L = LinearOperator((self.source_product.source.dim, self.source_product.range.dim), matvec=mv)
+                Linv = LinearOperator((self.source_product.range.dim, self.source_product.source.dim), matvec=mvinv)
+                return eigsh(L, sigma=0, which="LM", return_eigenvectors=False, k=1, OPinv=Linv)[0]
         else:
             return self.lambda_min
 
-    @cached
-    def _maxnorm(self, n):
-        with new_rng(self._test_seed_real):
-            W = self.A.source.random(n)
-        if self.complex:
-            with new_rng(self._test_seed_imag):
-                W += 1j * self.A.source.random(n)
-        Q = self.find_range(n, tol=None)
+    def _draw_test_vector(self, n):
+        with self._test_rng_real:
+            W = self.A.source.random(n, distribution='normal')
+            if self.complex:
+                with self._test_rng_imag:
+                    W += 1j * self.A.source.random(n, distribution='normal')
+        self.testvecs.append(self.A.apply(W))
+
+    def _maxnorm(self, basis_size, num_testvecs):
+        if len(self.testvecs) < num_testvecs:
+            self._draw_test_vector(num_testvecs - len(self.testvecs))
+
+        W, Q = self.testvecs[:num_testvecs], self.find_range(basis_size=basis_size, tol=None)
         W -= Q.lincomb(Q.inner(W, self.range_product).T)
         return np.max(W.norm(self.range_product))
 
     @cached
-    def _c_est(self, n, p_fail):
-        return 1 /  (np.sqrt(2 * self._lambda_min()) * erfinv((p_fail / min(self.A.source.dim, self.A.range.dim)) ** (1 / n)))
+    def _c_est(self, num_testvecs, p_fail):
+        c = np.sqrt(2 * self._lambda_min()) \
+            * erfinv((p_fail / min(self.A.source.dim, self.A.range.dim)) ** (1 / num_testvecs))
+        return 1 / c
 
-    def estimate_error(self, n, p_fail):
-        return self._c_est(n, p_fail) * self._maxnorm(n)
+    def estimate_error(self, basis_size, num_testvecs=20, p_fail=1e-14):
+        assert 0 < num_testvecs and isinstance(num_testvecs, int)
+        assert 0 < p_fail
+
+        err = self._c_est(num_testvecs, p_fail) * self._maxnorm(basis_size, num_testvecs)
+        self.logger.info(f'estimated error: {err:.2f}')
+
+        return err
 
     def _extend_basis(self, n=1):
-        assert 0 <= n and isinstance(n, int)
-        if (n + self._l) > min(self.A.source.dim, self.A.range.dim):
-            print('warn')
+        self.logger.info(f'Appending {n} basis vector{"s" if n > 1 else ""}...')
 
-        W = self.A.source.random(n, distribution='normal')
+        with self._basis_rng_real:
+            W = self.A.source.random(n, distribution='normal')
+        if self.complex:
+            with self._basis_rng_imag:
+                W += 1j * self.A.source.random(n, distribution='normal')
 
         self._Q[0].append(self.A.apply(W))
         gram_schmidt(self._Q[0], self.range_product, offset=self._l, copy=False)
@@ -96,27 +117,43 @@ class RandomizedSubspaceIterator(BasicObject):
 
         self._l += n
 
-    def find_range(self, n, p_fail=1e-14, tol=None):
-        if tol is None:
-            if n < self._l:
-                self._extend_basis(n - self._l)
-            return self._Q[-1][:n]
+    def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, block_size=8, increase_block=True):
+        assert isinstance(basis_size, int) and basis_size > 0
+        if basis_size > min(self.A.source.dim, self.A.range.dim):
+            self.logger.warning('Basis is larger than the rank of the operator!')
+            basis_size = min(self.A.source.dim, self.A.range.dim)
+        assert tol is None or tol > 0
+        assert isinstance(num_testvecs, int) and num_testvecs > 0
+        assert p_fail > 0
+        assert isinstance(block_size, int) and block_size > 0
+        assert isinstance(increase_block, bool)
+
+        if basis_size > self._l:
+            self._extend_basis(basis_size - self._l)
+
+        if tol is None or self.estimate_error(basis_size, num_testvecs, p_fail) <= tol:
+            return self._Q[-1][:basis_size]
         else:
-            while(self._estimate_error(n, p_fail) > tol):
-                self._extend_basis()
-            return self.Q[-1]
+            with self.logger.block('Extending range basis adaptively...'):
+                while self._l < min(self.A.source.dim, self.A.range.dim):
+                    basis_size += block_size
+                    if self.estimate_error(basis_size, num_testvecs, p_fail) <= tol:
+                        break
+                    if increase_block:
+                        block_size *= 2
+            return self.find_range(basis_size=basis_size, tol=None)
 
 
-A = np.random.rand(10, 10)
-W = np.diag(np.abs(np.random.rand(5)))
-W = NumpyMatrixOperator(W)
-V = NumpyVectorSpace.from_numpy(A)
-X = NumpyMatrixOperator(A)
+n = 1000
+with new_rng(0) as RNG:
+    B = RNG.random((n, n))
+V = NumpyVectorSpace.from_numpy(B)
+X = NumpyMatrixOperator(B)
 
-q = 1
-l = 3
-RSI = RandomizedSubspaceIterator(X, q)
-W1 = InverseOperator(W)
-
-Q = rrf(X)
-W = X.source.random(10)
+q = 0
+l = 1
+tol = 32
+p_fail = 1e-12
+with new_rng(0):
+    RSI = RandomizedRangeFinder(X, subspace_iterations=q)
+    Q1 = RSI.find_range(basis_size=l, tol=tol, p_fail=p_fail)
