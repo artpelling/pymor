@@ -103,9 +103,12 @@ class GenericIRKAReductor(BasicObject):
     @staticmethod
     def _rom_to_sigma_b_c(rom, force_sigma_in_rhp):
         poles, b, c = _lti_to_poles_b_c(rom)
-        sigma = (np.abs(poles.real) + poles.imag * 1j
-                 if force_sigma_in_rhp
-                 else -poles)
+        if rom.sampling_time > 0:
+            sigma = 1/np.conjugate(poles)
+        else:
+            sigma = (np.abs(poles.real) + poles.imag * 1j
+                     if force_sigma_in_rhp
+                     else -poles)
         return sigma, b, c
 
     def _rom0_params_to_sigma_b_c(self, rom0_params, force_sigma_in_rhp):
@@ -620,7 +623,7 @@ class TFIRKAReductor(GenericIRKAReductor):
         rom
             Reduced |LTIModel| model.
         """
-        if self.fom.sampling_time > 0:
+        if self.fom.sampling_ime > 0 and force_sigma_in_rhp:
             raise NotImplementedError
 
         self._clear_lists()
