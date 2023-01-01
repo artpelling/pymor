@@ -26,6 +26,7 @@ import scipy.sparse
 from scipy.sparse import issparse
 
 from pymor.core.base import abstractmethod
+from pymor.core.cache import CacheableObject, cached
 from pymor.core.defaults import defaults
 from pymor.core.exceptions import InversionError
 from pymor.core.logger import getLogger
@@ -408,7 +409,65 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
         return super()._format_repr(max_width, verbosity, override={'matrix': matrix_repr})
 
 
-class NumpyHankelOperator(NumpyGenericOperator):
+class NumpyCirculantLikeOperator(Operator, CacheableObject):
+    cache_region = 'memory'
+
+    def __init__(self, _arr, dim_source=1, dim_range=1, source_id=None, range_id=None, name=None):
+        assert _arr.ndim == 3
+        _arr.setflags(write=False)  # make numpy arrays read-only
+        self.__auto_init(locals())
+        self.source = NumpyVectorSpace(dim_source, source_id)
+        self.range = NumpyVectorSpace(dim_range, range_id)
+        self.linear = True
+
+    @cached
+    def _circulant(self):
+        return rfft(self._arr, axis=0) if np.isrealobj(self._arr) else fft(self._arr, axis=0)
+
+    def _circulant_matvec(self, vec):
+        s, p, m = self._arr.shape
+
+        c = self._circulant()
+        if np.isrealobj(self._arr) and np.iscomplexobj(vec):
+            c = np.concatenate([c, np.flip(c[1:-1], axis=0).conj()])
+
+        # use real arithmetic if possible
+        if np.isrealobj(self._arr) and np.isrealobj(vec):
+            F, iF, dtype = lambda x: rfft(x, axis=0), lambda x: irfft(x, axis=0), float
+        else:
+            F, iF, dtype = lambda x: fft(x, axis=0), lambda x: ifft(x, axis=0), complex
+
+        x = []
+        for j in range(m):
+            x.append(F(vec[j::m]))
+
+        y = np.zeros((self.range.dim, vec.shape[1]), dtype=dtype)
+        for (i, j) in np.ndindex((p, m)):
+            y[i::p] += iF(x[j] * c[:, i, j].reshape(-1, 1))[:int(self.range.dim / p)]
+
+        return y
+
+
+class NumpyCirculantOperator(NumpyCirculantLikeOperator):
+    def __init__(self, c, source_id=None, range_id=None, name=None):
+        if c.ndim == 1:
+            c = c.reshape(-1, 1, 1)
+        s, p, m = c.shape
+        super().__init__(c, dim_source=m*s, dim_range=p*s, source_id=source_id, range_id=range_id, name=name)
+        self.c = self._arr
+
+    def apply(self, U, mu=None):
+        assert U in self.source
+        U = U.to_numpy().T
+        return self.range.make_array(self._circulant_matvec(U).T)
+
+    @property
+    def H(self):
+        adjoint_c = np.roll(self.c.transpose(0, 2, 1).conj(), -1, axis=0)[::-1]
+        return self.with_(c=adjoint_c, source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
+
+
+class NumpyHankelOperator(NumpyCirculantLikeOperator):
     r"""Implicit representation of a Hankel operator by a |NumPy Array|.
 
     Let
@@ -474,52 +533,26 @@ class NumpyHankelOperator(NumpyGenericOperator):
             h = h.reshape(-1, 1, 1)
         assert h.ndim == 3
         h.setflags(write=False)  # make numpy arrays read-only
-        self.__auto_init(locals())
-        n, p, m = h.shape
-        s = n // 2 + 1
-        self.source = NumpyVectorSpace(m * s, source_id)
-        self.range = NumpyVectorSpace(p * s, range_id)
-        self.linear = True
-        self._circulant = None
+        s, p, m = h.shape
+        n = s // 2 + 1
+        c = np.roll(np.concatenate([np.zeros([1, p, m]), h, np.zeros([1 - s % 2, p, m])]), n, axis=0)
+        super().__init__(c, dim_source=m*n, dim_range=p*n, source_id=source_id, range_id=range_id, name=name)
+        self.h = h
 
     def apply(self, U, mu=None):
         assert U in self.source
+        n = int(self.range.dim / self.h.shape[1])
         U = U.to_numpy().T
-        k = U.shape[1]
-        s, p, m = self.h.shape
-        n = s // 2 + 1
-
-        FFT, iFFT = fft, ifft
-        c = self._calc_circulant()
-        dtype = complex
-        if np.isrealobj(self.h):
-            if np.isrealobj(U):
-                FFT, iFFT = rfft, irfft
-                dtype = float
-            else:
-                c = np.concatenate([c, np.flip(c[1:-1], axis=0).conj()])
-
-        y = np.zeros([self.range.dim, k], dtype=dtype)
-        for (i, j) in np.ndindex((p, m)):
-            x = np.concatenate([np.flip(U[j::m], axis=0), np.zeros([n, k])])
-            cx = iFFT(FFT(x, axis=0) * c[:, i, j].reshape(-1, 1), axis=0)
-            y[i::p] += cx[:n]
-
-        return self.range.make_array(y.T)
+        U = np.concatenate([np.flip(U, axis=0), np.zeros_like(U)], axis=0)
+        return self.range.make_array(self._circulant_matvec(U).T)
 
     def apply_adjoint(self, V, mu=None):
         assert V in self.range
         return self.H.apply(V, mu=mu)
 
-    def _calc_circulant(self):
-        if self._circulant is None:
-            FFT = rfft if np.isrealobj(self.h) else fft
-            s, p, m = self.h.shape
-            self._circulant = FFT(np.roll(
-                np.concatenate([np.zeros([1, p, m]), self.h, np.zeros([1 - s % 2, p, m])]), s // 2 + 1, axis=0), axis=0)
-        return self._circulant
-
     @property
     def H(self):
         adjoint_h = self.h.transpose(0, 2, 1).conj()
         return self.with_(h=adjoint_h, source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
+
+

@@ -15,7 +15,7 @@ from pymor.operators.constructions import (AdjointOperator, ComponentProjectionO
                                            IdentityOperator, LincombOperator, LowRankOperator, LowRankUpdatedOperator,
                                            NumpyConversionOperator, VectorArrayOperator, ZeroOperator)
 from pymor.operators.interface import as_array_max_length
-from pymor.operators.numpy import NumpyHankelOperator, NumpyMatrixOperator
+from pymor.operators.numpy import NumpyCirculantOperator, NumpyHankelOperator, NumpyMatrixOperator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
@@ -50,6 +50,19 @@ class ToMatrixRules(RuleTable):
     def __init__(self, format, mu):
         super().__init__()
         self.__auto_init(locals())
+
+    @match_class(NumpyCirculantOperator)
+    def action_NumpyCirculantOperator(self, op):
+        format = self.format
+        if format in (None, 'dense'):
+            _, p, m = op.c.shape
+            op_matrix = np.zeros((op.range.dim, op.source.dim), dtype=op.c.dtype)
+            for (i, j) in np.ndindex((p, m)):
+                op_matrix[i::p, j::m] = spla.circulant(op.c[:, i, j])
+
+            return op_matrix
+        else:
+            raise NotImplementedError
 
     @match_class(NumpyHankelOperator)
     def action_NumpyHankelOperator(self, op):
