@@ -410,6 +410,27 @@ class NumpyMatrixOperator(NumpyMatrixBasedOperator):
 
 
 class NumpyCirculantLikeOperator(Operator, CacheableObject):
+    """Base class for operators whose `apply` can be expressed as a DFT operation.
+
+    Implements efficient matrix-vector multiplications with DFT and caches the transformed vector.
+
+    Parameters
+    ----------
+    _arr
+        The |NumPy array| that defines the circulant operator. Has to be three-dimensional with
+        `_arr.shape = (n, p, m)`.
+    dim_source
+        The source dimension.
+    dim_range
+        The range dimension.
+    source_id
+        The id of the operator's `source` |VectorSpace|.
+    range_id
+        The id of the operator's `range` |VectorSpace|.
+    name
+        Name of the operator.
+    """
+
     cache_region = 'memory'
 
     def __init__(self, _arr, dim_source=1, dim_range=1, source_id=None, range_id=None, name=None):
@@ -449,6 +470,53 @@ class NumpyCirculantLikeOperator(Operator, CacheableObject):
 
 
 class NumpyCirculantOperator(NumpyCirculantLikeOperator):
+    r"""Implicit representation of a circulant operator by a |NumPy Array|.
+
+    Let
+
+    .. math::
+        c =
+        \begin{pmatrix}
+            c_1 & c_2 & \dots & c_n
+        \end{pmatrix},\quad c_i\in\mathbb{C}^{p\times m},\,i=1,\,\dots,\,n,\quad n,m,p\in\mathbb{N}
+
+    be a finite (matrix-valued) sequence. The corresponding circulant operator can be represented by
+    the matrix
+
+    .. math::
+        C =
+        \begin{bmatrix}
+            c_1 & c_n & \dots & c_2 \\
+            c_2 & c_1 & \dots & c_3\\
+            \vdots & \vdots & \ddots & \vdots\\
+            c_n & c_{n-1} & \dots & c_1
+        \end{bmatrix}\in\mathbb{C}^{ms\times ps}.
+
+    The matrix :math:`C` as seen above is not explicitly constructed, only the sequence `c` is
+    stored. Efficient matrix-vector multiplications are realized with DFT in the class' `apply`
+    method (see :cite:`GVL13` Section 4.8. for details).
+
+    Parameters
+    ----------
+    c
+        The |NumPy array| that defines the circulant operator. Has to be one- or three-dimensional
+        with either:
+
+            c.shape = (n,)
+
+        for scalar-valued sequences or::
+
+            c.shape = (n, p, m)
+
+        for matrix-valued of sequences with elements of dimension :math:`p\times m`.
+    source_id
+        The id of the operator's `source` |VectorSpace|.
+    range_id
+        The id of the operator's `range` |VectorSpace|.
+    name
+        Name of the operator.
+    """
+
     def __init__(self, c, source_id=None, range_id=None, name=None):
         if c.ndim == 1:
             c = c.reshape(-1, 1, 1)
@@ -541,7 +609,7 @@ class NumpyHankelOperator(NumpyCirculantLikeOperator):
 
     def apply(self, U, mu=None):
         assert U in self.source
-        n = int(self.range.dim / self.h.shape[1])
+        # n = int(self.range.dim / self.h.shape[1])
         U = U.to_numpy().T
         U = np.concatenate([np.flip(U, axis=0), np.zeros_like(U)], axis=0)
         return self.range.make_array(self._circulant_matvec(U).T)
@@ -554,5 +622,3 @@ class NumpyHankelOperator(NumpyCirculantLikeOperator):
     def H(self):
         adjoint_h = self.h.transpose(0, 2, 1).conj()
         return self.with_(h=adjoint_h, source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
-
-
