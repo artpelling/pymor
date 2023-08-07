@@ -16,6 +16,7 @@ This module provides the following |NumPy|-based |Operators|:
 from functools import reduce
 
 import numpy as np
+import scipy
 from scipy.io import mmwrite, savemat
 from scipy.linalg import lu_factor, lu_solve
 from scipy.linalg.lapack import get_lapack_funcs
