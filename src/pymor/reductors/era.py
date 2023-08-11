@@ -6,9 +6,12 @@ import numpy as np
 import scipy.linalg as spla
 
 from pymor.algorithms.projection import project
+from pymor.algorithms.rand_la import RandomizedRangeFinder
+from pymor.algorithms.svd_va import qr_svd
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.cache import CacheableObject, cached
 from pymor.models.iosys import LTIModel
+from pymor.operators.constructions import IdentityOperator
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.operators.numpy_dft import NumpyBlockDFTBasedOperator, NumpyHankelOperator
@@ -241,6 +244,120 @@ class ERAReductor(CacheableObject):
         sqsv = np.sqrt(sv)
         U *= sqsv.reshape(1, -1)
         V *= sqsv.reshape(-1, 1)
+        A = NumpyMatrixOperator(spla.lstsq(U[: -(num_left or p)], U[(num_left or p):])[0])
+        B = NumpyMatrixOperator(V[:, :(num_right or m)])
+        C = NumpyMatrixOperator(U[:(num_left or p)])
+
+        if num_left:
+            self.logger.info('Backprojecting tangential output directions ...')
+            W1 = self.output_projector(num_left)
+            C = project(C, source_basis=None, range_basis=C.range.from_numpy(W1))
+        if num_right:
+            self.logger.info('Backprojecting tangential input directions ...')
+            W2 = self.input_projector(num_right)
+            B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
+
+        return LTIModel(A, B, C, D=self.feedthrough, sampling_time=self.sampling_time,
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv)})
+
+
+class RandomizedERAReductor(ERAReductor):
+    def __init__(self, data, sampling_time, force_stability=True, feedthrough=None, **rsvd_opts):
+        rsvd_opts.setdefault('oversampling', 20)
+        super().__init__(data, sampling_time, force_stability, feedthrough)
+        self.oversampling = rsvd_opts.pop('oversampling')
+        self.rsvd_opts = rsvd_opts
+        self._sv_U_V_cache = {}
+
+    @cached
+    def _rrf(self, num_left, num_right):
+        print('Running cached method')
+        n, p, m = self.data.shape
+        s = n if self.force_stability else (n + 1) // 2
+        if num_left is None and m * s < p:
+            self.logger.info('Data has low rank! Accelerating computation with output tangential projections ...')
+            num_left = m * s
+        if num_right is None and p * s < m:
+            self.logger.info('Data has low rank! Accelerating computation with input tangential projections ...')
+            num_right = p * s
+        self._project_markov_parameters(num_left, num_right) if num_left or num_right else self.data
+
+        ops = np.zeros((p, m), dtype=object)
+        for i, j in np.ndindex(p, m):
+            ops[i, j] = NumpyHankelOperator(self.data[:s,i,j], r=None if self.force_stability else self.data[s-1:,i,j])
+
+        rrf = RandomizedRangeFinder(NumpyBlockDFTBasedOperator(ops), **self.rsvd_opts)
+        return rrf
+
+    def _sv_U_V(self, r, num_left, num_right):
+        key = f'{num_left}-{num_right}'
+        try:
+            sv, U, V = self._sv_U_V_cache.get(key)
+            if r > len(sv):
+                raise TypeError
+        except TypeError:
+            rrf = self._rrf(num_left, num_right)
+            S, H, T = rrf.range_product, rrf.A, rrf.source_product
+            with self.logger.block('Approximating basis for the operator range ...'):
+                Q = rrf.find_range(basis_size=r+self.oversampling)
+
+            with self.logger.block(f'Computing transposed SVD in the reduced space ({len(Q)}x{Q.dim})...'):
+                B = T.apply_inverse(H.apply_adjoint(S.apply(Q)))
+                V, sv, Uh_b = qr_svd(B, product=T, modes=r, rtol=0)
+
+            with self.logger.block('Backprojecting the left'
+                              + f'{" " if isinstance(S, IdentityOperator) else " generalized "}'
+                              + f'singular vector{"s" if r > 1 else ""} ...'):
+                U = Q.lincomb(Uh_b[:r])
+            self._sv_U_V_cache[key] = sv, U, V
+
+        sv, U, V = self._sv_U_V_cache.get(key)
+        return sv[:r], U[:r], V[:r]
+
+    def reduce(self, r=None, tol=None, num_left=None, num_right=None):
+        """Construct a minimal realization.
+
+        Parameters
+        ----------
+        r
+            Order of the reduced model if `tol` is `None`, maximum order if `tol` is specified.
+        tol
+            Tolerance for the error bound.
+        num_left
+            Number of left (output) directions for tangential projection.
+        num_right
+            Number of right (input) directions for tangential projection.
+
+        Returns
+        -------
+        rom
+            Reduced-order |LTIModel|.
+        """
+        assert r is not None or tol is not None
+        n, p, m = self.data.shape
+        s = n if self.force_stability else (n + 1) // 2
+        assert num_left is None or isinstance(num_left, int) and 0 < num_left < p
+        assert num_right is None or isinstance(num_right, int) and 0 < num_right < m
+        assert r is None or 0 < r <= min((num_left or p), (num_right or m)) * s
+
+        if tol is not None:
+            error_bounds = self.error_bounds(num_left=num_left, num_right=num_right)
+            r_tol = np.argmax(error_bounds <= tol) + 1
+            r = r_tol if r is None else min(r, r_tol)
+
+        self.logger.info(f'Computing randomized SVD of the {"projected " if num_left or num_right else ""} \
+                            Hankel matrix ...')
+
+        sv, U, V = self._sv_U_V(r, num_left, num_right)
+        sqsv = np.sqrt(sv)
+        U.scal(sqsv)
+        V.scal(sqsv)
+        U = U.to_numpy().T
+        V = V.to_numpy()
+        num_left = m * s if num_left is None and m * s < p else num_left
+        num_right = p * s if num_right is None and p * s < m else num_right
+
+        self.logger.info(f'Constructing reduced realization of order {r} ...')
         A = NumpyMatrixOperator(spla.lstsq(U[: -(num_left or p)], U[(num_left or p):])[0])
         B = NumpyMatrixOperator(V[:, :(num_right or m)])
         C = NumpyMatrixOperator(U[:(num_left or p)])
