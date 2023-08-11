@@ -268,21 +268,25 @@ class RandomizedRangeFinder(ImmutableObject):
                     W += 1j * self.A.source.random(k, distribution='normal')
 
                 offset = len(self._Q[0])
-                self._Q[0].append(self.A.apply(W))
-                gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
+                with self.logger.block('Sampling Operator ...'):
+                    self._Q[0].append(self.A.apply(W))
 
-                for i in range(self.subspace_iterations):
-                    i = 2*i + 1
+                with self.logger.block('Orthogonalizing ...'):
+                    gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
 
-                    k = len(self._Q[i-1]) - offset  # check if GS removed vectors
-                    offset = len(self._Q[i])
-                    self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
-                    gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
+                    for i in range(self.subspace_iterations):
+                        self.logger.block(f'Subspace iteration {i+1} ...')
+                        i = 2*i + 1
 
-                    k = len(self._Q[i]) - offset  # check if GS removed vectors
-                    offset = len(self._Q[i+1])
-                    self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
-                    gram_schmidt(self._Q[i+1], self.range_product, offset=offset, copy=False)
+                        k = len(self._Q[i-1]) - offset  # check if GS removed vectors
+                        offset = len(self._Q[i])
+                        self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
+                        gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
+
+                        k = len(self._Q[i]) - offset  # check if GS removed vectors
+                        offset = len(self._Q[i+1])
+                        self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
+                        gram_schmidt(self._Q[i+1], self.range_product, offset=offset, copy=False)
 
             k = basis_size - len(self._Q[-1])
             if k > 0:
