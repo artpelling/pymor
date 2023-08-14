@@ -6,9 +6,8 @@
 
 This module provides the following |NumPy|-based |Operators|:
 
-- |NumpyDFTBasedOperator| should be used as a base class for all |Operators| that use DFT matvecs.
-- |NumpyToeplitzOperator| matrix-free operator of a Toeplitz matrix.
 - |NumpyCirculantOperator| matrix-free operator of a circulant matrix.
+- |NumpyToeplitzOperator| matrix-free operator of a Toeplitz matrix.
 - |NumpyHankelOperator| matrix-free operator of a Hankel matrix.
 """
 
@@ -56,15 +55,16 @@ class NumpyCirculantOperator(Operator, CacheableObject):
 
     cache_region = 'memory'
 
-    def __init__(self, _arr, source_id=None, range_id=None, name=None, scipy=True):
-        assert isinstance(_arr, np.ndarray)
-        if _arr.ndim == 1:
-            _arr = _arr.reshape(-1, 1, 1)
-        assert _arr.ndim == 3
-        _arr.setflags(write=False)  # make numpy arrays read-only
+    def __init__(self, c, source_id=None, range_id=None, name=None, scipy=True):
+        assert isinstance(c, np.ndarray)
+        if c.ndim == 1:
+            c = c.reshape(-1, 1, 1)
+        assert c.ndim == 3
+        c.setflags(write=False)  # make numpy arrays read-only
         self.__auto_init(locals())
+        n, p, m = c.shape
+        self._arr = c
         self.linear = True
-        n, p, m = _arr.shape
         self.source = NumpyVectorSpace(n*m, source_id)
         self.range = NumpyVectorSpace(n*p, range_id)
 
@@ -90,7 +90,9 @@ class NumpyCirculantOperator(Operator, CacheableObject):
             X = rfft(x, axis=0) if isreal else fft(x, axis=0)
             for i in range(p):
                 Y = X*C[:, i, j].reshape(-1, 1)
-                Y = irfft(Y, axis=0) if isreal else ifft(Y, axis=0)
+                # setting n=n below is necessary to allow uneven lengths but considerably slower
+                # Hankel operator will always pad to even length to avoid that
+                Y = irfft(Y, n=n, axis=0) if isreal else ifft(Y, axis=0)
                 y[i::p] += Y[:self.range.dim // p]
         return y.T
 
@@ -105,7 +107,7 @@ class NumpyCirculantOperator(Operator, CacheableObject):
 
     @property
     def H(self):
-        return self.with_(c=np.roll(self._arr.conj(), -1, axis=0)[::-1],
+        return self.with_(c=np.roll(self._arr.conj(), -1, axis=0)[::-1].transpose(0, 2, 1),
                           source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
 
 
@@ -148,29 +150,35 @@ class NumpyToeplitzOperator(NumpyCirculantOperator):
     """
 
     def __init__(self, c, r=None, source_id=None, range_id=None, name=None):
+        assert isinstance(c, np.ndarray)
+        c = c.reshape(-1, 1, 1) if c.ndim == 1 else c
+        assert c.ndim == 3
         if r is None:
-            r = c.conj()
-            r[0] = c[0]
+            r = np.zeros_like(c)
+            r[0] = c[-1]
         else:
-            assert c.shape == r.shape
-            assert r[0] == c[0]
+            assert isinstance(r, np.ndarray)
+            r = r.reshape(-1, 1, 1) if r.ndim == 1 else r
+            assert r.ndim == 3
+            assert c.shape[1:] == r.shape[1:]
+            assert np.allclose(c[0], r[0])
         c.setflags(write=False)
         r.setflags(write=False)
         super().__init__(np.concatenate([c, r[:0:-1]]), source_id=source_id, range_id=range_id, name=name)
         n, p, m = self._arr.shape
-        self.c = c
-        self.r = r
         self.source = NumpyVectorSpace(m*r.shape[0], source_id)
         self.range = NumpyVectorSpace(p*c.shape[0], range_id)
+        self.c = c
+        self.r = r
 
     def apply(self, U, mu=None):
         assert U in self.source
         U = np.concatenate([U.to_numpy().T, np.zeros((self._arr.shape[0] - U.dim, len(U)))])
-        return self.range.make_array(self._circulant_matvec(U)[:self.range.dim].T)
+        return self.range.make_array(self._circular_matvec(U)[:self.range.dim])
 
     @property
     def H(self):
-        return self.with_(c=self.r.conj(), r=self.c.conj(), source_id=self.range_id, range_id=self.source_id,
+        return self.with_(c=self.r.conj().transpose(0, 2, 1), r=self.c.conj().transpose(0, 2, 1), source_id=self.range_id, range_id=self.source_id,
                           name=self.name + '_adjoint')
 
 
@@ -213,24 +221,32 @@ class NumpyHankelOperator(NumpyCirculantOperator):
     """
 
     def __init__(self, c, r=None, source_id=None, range_id=None, name=None):
+        assert isinstance(c, np.ndarray)
+        c = c.reshape(-1, 1, 1) if c.ndim == 1 else c
+        assert c.ndim == 3
         if r is None:
             r = np.zeros_like(c)
             r[0] = c[-1]
         else:
+            assert isinstance(r, np.ndarray)
+            r = r.reshape(-1, 1, 1) if r.ndim == 1 else r
+            assert r.ndim == 3
             assert c.shape[1:] == r.shape[1:]
             assert np.allclose(r[0], c[-1])
         c.setflags(write=False)
         r.setflags(write=False)
         k, l = c.shape[0], r.shape[0]
         n = k + l - 1
-        h = np.concatenate([c, r[1:], np.zeros([1 - n % 2, *c.shape[1:]])])
-        shift = n // 2 + int(np.ceil((k - l) / 2)) + 1  # this works
-        super().__init__(np.roll(h, shift), source_id=source_id, range_id=range_id, name=name)
+        # zero pad to even length if real to avoid slow irfft
+        z = int(np.isrealobj(c) and np.isrealobj(r) and n % 2)
+        h = np.concatenate((c, r[1:], np.zeros([z, *c.shape[1:]])))
+        shift = n // 2 + int(np.ceil((k - l) / 2)) + (n % 2) + z # this works
+        super().__init__(np.roll(h, shift, axis=0), source_id=source_id, range_id=range_id, name=name)
         p, m = self._arr.shape[1:]
-        self.c = c
-        self.r = r
         self.source = NumpyVectorSpace(l*m, source_id)
         self.range = NumpyVectorSpace(k*p, range_id)
+        self.c = c
+        self.r = r
 
     def apply(self, U, mu=None):
         assert U in self.source
@@ -243,6 +259,6 @@ class NumpyHankelOperator(NumpyCirculantOperator):
 
     @property
     def H(self):
-        h = np.concatenate([self.c, self.r[1:]]).conj()
-        return self.with_(c=h[:self.source.dim], r=h[self.source.dim-1:],
+        h = np.concatenate([self.c, self.r[1:]], axis=0).conj().transpose(0, 2, 1)
+        return self.with_(c=h[:self.r.shape[0]], r=h[self.r.shape[0]-1:],
                           source_id=self.range_id, range_id=self.source_id, name=self.name+'_adjoint')
