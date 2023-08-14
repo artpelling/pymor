@@ -13,23 +13,39 @@ This module provides the following |NumPy|-based |Operators|:
 """
 
 import numpy as np
-from numpy.fft import fft, ifft, irfft, rfft
+from scipy.fft import fft, ifft, irfft, rfft
 
 from pymor.core.cache import CacheableObject, cached
 from pymor.operators.interface import Operator
 from pymor.vectorarrays.numpy import NumpyVectorSpace
 
 
-class NumpyDFTBasedOperator(Operator, CacheableObject):
-    """Base class for operators whose `apply` can be expressed as a DFT operation.
+class NumpyCirculantOperator(Operator, CacheableObject):
+    r"""Matrix-free representation of a circulant matrix by a |NumPy Array|.
 
-    Implements efficient matrix-vector multiplications with DFT for matrix-free operations and
-    caches the circulant vector in the frequency domain.
+    A circulant matrix is a special kind of Toeplitz matrix which is square and completely
+    determined by its first column via
+
+    .. math::
+        C =
+            \begin{bmatrix}
+                c_1    & c_n    & c_{n-1} & \cdots & \cdots & c_2 \\
+                c_2    & c_1    & c_n     &        &        & \vdots \\
+                c_3    & c_2    & \ddots  &        &        & \vdots \\
+                \vdots &        &         & \ddots & c_n    & c_{n-1} \\
+                \vdots &        &         & c_2    & c_1    & c_n \\
+                c_n    & \cdots & \cdots  & c_3    & c_2    & c_1
+            \end{bmatrix} \in \mathbb{C}^{n \times n},
+
+    where the so-called circulant vector :math:`c \in \mathbb{C}^n` denotes the first column of the
+    matrix. The matrix :math:`C` as seen above is not explicitly constructed, only `c` is stored.
+    Efficient matrix-vector multiplications are realized with DFT in the class' `apply` method.
+    See :cite:`GVL13` Chapter 4.8.2. for details.
 
     Parameters
     ----------
-    _arr
-        The one-dimensional |NumPy array| that defines the circulant operator.
+    c
+        The |NumPy array| that defines the circulant vector.
     source_id
         The id of the operator's `source` |VectorSpace|.
     range_id
@@ -40,36 +56,60 @@ class NumpyDFTBasedOperator(Operator, CacheableObject):
 
     cache_region = 'memory'
 
-    def __init__(self, _arr, source_id=None, range_id=None, name=None):
-        _arr = np.squeeze(_arr)
-        assert _arr.ndim == 1
+    def __init__(self, _arr, source_id=None, range_id=None, name=None, scipy=True):
+        assert isinstance(_arr, np.ndarray)
+        if _arr.ndim == 1:
+            _arr = _arr.reshape(-1, 1, 1)
+        assert _arr.ndim == 3
         _arr.setflags(write=False)  # make numpy arrays read-only
         self.__auto_init(locals())
         self.linear = True
+        n, p, m = _arr.shape
+        self.source = NumpyVectorSpace(n*m, source_id)
+        self.range = NumpyVectorSpace(n*p, range_id)
 
     @cached
     def _circulant(self):
-        return (rfft(self._arr, axis=0) if np.isrealobj(self._arr) else fft(self._arr, axis=0))[:, np.newaxis]
+        return (rfft(self._arr, axis=0) if np.isrealobj(self._arr) else fft(self._arr, axis=0))
 
-    def _circulant_matvec(self, vec):
-        n = vec.shape[0]
+    def _circular_matvec(self, vec):
+        s, k = vec.shape
         # use real arithmetic if possible
-        if np.isrealobj(self._arr) and np.isrealobj(vec):
-            F, iF = lambda x: rfft(x, axis=0), lambda x: irfft(x, axis=0, n=n)
-        else:
-            F, iF = lambda x: fft(x, axis=0), lambda x: ifft(x, axis=0)
-        C = self._circulant()
-        if np.isrealobj(self._arr) and np.iscomplexobj(vec):
-            C = np.concatenate([C, C[1:(None if n % 2 else -1)].conj()[::-1]])
+        isreal = np.isrealobj(self._arr) and np.isrealobj(vec)
+        ismixed = np.isrealobj(self._arr) and np.iscomplexobj(vec)
 
-        return iF(F(vec)*C)
+        C = self._circulant()
+        if ismixed:
+            C = np.concatenate([C, C[1:(None if s % 2 else -1)].conj()[::-1]])
+
+        dtype = float if isreal else complex
+        y = np.zeros((self.range.dim, k), dtype=dtype)
+        n, p, m = self._arr.shape
+        for j in range(m):
+            x = vec[j::m]
+            X = rfft(x, axis=0) if isreal else fft(x, axis=0)
+            for i in range(p):
+                Y = X*C[:, i, j].reshape(-1, 1)
+                Y = irfft(Y, axis=0) if isreal else ifft(Y, axis=0)
+                y[i::p] += Y[:self.range.dim // p]
+        return y.T
+
+    def apply(self, U, mu=None):
+        assert U in self.source
+        U = U.to_numpy().T
+        return self.range.make_array(self._circular_matvec(U))
 
     def apply_adjoint(self, V, mu=None):
         assert V in self.range
         return self.H.apply(V, mu=mu)
 
+    @property
+    def H(self):
+        return self.with_(c=np.roll(self._arr.conj(), -1, axis=0)[::-1],
+                          source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
 
-class NumpyToeplitzOperator(NumpyDFTBasedOperator):
+
+class NumpyToeplitzOperator(NumpyCirculantOperator):
     r"""Matrix-free representation of a Toeplitz matrix by a |NumPy Array|.
 
     A Toeplitz matrix is a matrix with constant diagonals, i.e.:
@@ -108,26 +148,24 @@ class NumpyToeplitzOperator(NumpyDFTBasedOperator):
     """
 
     def __init__(self, c, r=None, source_id=None, range_id=None, name=None):
-        c = np.squeeze(c)
-        assert c.ndim == 1
         if r is None:
             r = c.conj()
             r[0] = c[0]
         else:
-            r = np.squeeze(r)
-            assert r.ndim == 1
+            assert c.shape == r.shape
             assert r[0] == c[0]
         c.setflags(write=False)
         r.setflags(write=False)
         super().__init__(np.concatenate([c, r[:0:-1]]), source_id=source_id, range_id=range_id, name=name)
+        n, p, m = self._arr.shape
         self.c = c
         self.r = r
-        self.source = NumpyVectorSpace(r.size, source_id)
-        self.range = NumpyVectorSpace(c.size, range_id)
+        self.source = NumpyVectorSpace(m*r.shape[0], source_id)
+        self.range = NumpyVectorSpace(p*c.shape[0], range_id)
 
     def apply(self, U, mu=None):
         assert U in self.source
-        U = np.concatenate([U.to_numpy().T, np.zeros((self._arr.size - U.dim, len(U)))])
+        U = np.concatenate([U.to_numpy().T, np.zeros((self._arr.shape[0] - U.dim, len(U)))])
         return self.range.make_array(self._circulant_matvec(U)[:self.range.dim].T)
 
     @property
@@ -136,61 +174,7 @@ class NumpyToeplitzOperator(NumpyDFTBasedOperator):
                           name=self.name + '_adjoint')
 
 
-class NumpyCirculantOperator(NumpyToeplitzOperator):
-    r"""Matrix-free representation of a circulant matrix by a |NumPy Array|.
-
-    A circulant matrix is a special kind of Toeplitz matrix which is square and completely
-    determined by its first column via
-
-    .. math::
-        C =
-            \begin{bmatrix}
-                c_1    & c_n    & c_{n-1} & \cdots & \cdots & c_2 \\
-                c_2    & c_1    & c_n     &        &        & \vdots \\
-                c_3    & c_2    & \ddots  &        &        & \vdots \\
-                \vdots &        &         & \ddots & c_n    & c_{n-1} \\
-                \vdots &        &         & c_2    & c_1    & c_n \\
-                c_n    & \cdots & \cdots  & c_3    & c_2    & c_1
-            \end{bmatrix} \in \mathbb{C}^{n \times n},
-
-    where the so-called circulant vector :math:`c \in \mathbb{C}^n` denotes the first column of the
-    matrix. The matrix :math:`C` as seen above is not explicitly constructed, only `c` is stored.
-    Efficient matrix-vector multiplications are realized with DFT in the class' `apply` method.
-    See :cite:`GVL13` Chapter 4.8.2. for details.
-
-    Parameters
-    ----------
-    c
-        The |NumPy array| that defines the circulant vector.
-    source_id
-        The id of the operator's `source` |VectorSpace|.
-    range_id
-        The id of the operator's `range` |VectorSpace|.
-    name
-        Name of the operator.
-    """
-
-    def __init__(self, c, source_id=None, range_id=None, name=None):
-        c = np.squeeze(c)
-        assert c.ndim == 1
-        c.setflags(write=False)
-        super(NumpyToeplitzOperator, self).__init__(c, source_id=source_id, range_id=range_id, name=name)
-        self.c = self._arr
-        self.source = NumpyVectorSpace(c.size, source_id)
-        self.range = NumpyVectorSpace(c.size, range_id)
-
-    def apply(self, U, mu=None):
-        assert U in self.source
-        U = U.to_numpy().T
-        return self.range.make_array(self._circulant_matvec(U).T)
-
-    @property
-    def H(self):
-        return self.with_(c=np.roll(self.c.conj(), -1, axis=0)[::-1],
-                          source_id=self.range_id, range_id=self.source_id, name=self.name + '_adjoint')
-
-
-class NumpyHankelOperator(NumpyDFTBasedOperator):
+class NumpyHankelOperator(NumpyCirculantOperator):
     r"""Matrix-free representation of a Hankel matrix by a |NumPy Array|.
 
     A Hankel matrix is a matrix with constant anti-diagonals, i.e.:
@@ -229,69 +213,36 @@ class NumpyHankelOperator(NumpyDFTBasedOperator):
     """
 
     def __init__(self, c, r=None, source_id=None, range_id=None, name=None):
-        c = np.squeeze(c)
-        assert c.ndim == 1
         if r is None:
             r = np.zeros_like(c)
             r[0] = c[-1]
         else:
-            r = np.squeeze(r)
-            assert r.ndim == 1
-            assert r[0] == c[-1]
+            assert c.shape[1:] == r.shape[1:]
+            assert np.allclose(r[0], c[-1])
         c.setflags(write=False)
         r.setflags(write=False)
-        n = c.size + r.size - 1
-        h = np.concatenate([c, r[1:], np.zeros([1 - n % 2])])
-        shift = n // 2 + int(np.ceil((c.size - r.size) / 2)) + 1  # this works
+        k, l = c.shape[0], r.shape[0]
+        n = k + l - 1
+        h = np.concatenate([c, r[1:], np.zeros([1 - n % 2, *c.shape[1:]])])
+        shift = n // 2 + int(np.ceil((k - l) / 2)) + 1  # this works
         super().__init__(np.roll(h, shift), source_id=source_id, range_id=range_id, name=name)
-        self.source = NumpyVectorSpace(r.size, source_id)
-        self.range = NumpyVectorSpace(c.size, range_id)
+        p, m = self._arr.shape[1:]
         self.c = c
         self.r = r
+        self.source = NumpyVectorSpace(l*m, source_id)
+        self.range = NumpyVectorSpace(k*p, range_id)
 
     def apply(self, U, mu=None):
         assert U in self.source
         U = U.to_numpy().T
-        n = self.c.size + self.r.size - 1
-        x = np.concatenate([np.flip(U, axis=0), np.zeros((self.c.size - n % 2, U.shape[1]))])
-        return self.range.make_array(self._circulant_matvec(x)[:self.range.dim].T)
+        n, p, m = self._arr.shape
+        x = np.zeros((n*m, U.shape[1]), dtype=U.dtype)
+        for j in range(m):
+            x[:self.source.dim][j::m] = np.flip(U[j::m], axis=0)
+        return self.range.make_array(self._circular_matvec(x)[:self.range.dim])
 
     @property
     def H(self):
         h = np.concatenate([self.c, self.r[1:]]).conj()
         return self.with_(c=h[:self.source.dim], r=h[self.source.dim-1:],
                           source_id=self.range_id, range_id=self.source_id, name=self.name+'_adjoint')
-
-
-class NumpyBlockDFTBasedOperator(NumpyDFTBasedOperator):
-    cache_region = None
-
-    def __init__(self, _ops, source_id=None, range_id=None, name=None):
-        assert _ops.ndim == 2
-        _ops.setflags(write=False)
-        self.__auto_init(locals())
-        p, m = self._ops.shape
-        source_dim = m * np.max([op.source.dim for op in self._ops.ravel()])
-        range_dim = p * np.max([op.range.dim for op in self._ops.ravel()])
-        self.source = NumpyVectorSpace(source_dim, source_id)
-        self.range = NumpyVectorSpace(range_dim, range_id)
-        self.linear = all([op.linear for op in self._ops.ravel()])
-
-    def apply(self, U, mu=None):
-        U = U.to_numpy().T
-        dtype = float if all([np.isrealobj(x) for x in [U, *[op._arr for op in self._ops.ravel()]]]) else complex
-        y = np.zeros((self.range.dim, U.shape[1]), dtype=dtype)
-        m, n = self._ops.shape
-        for i, j in np.ndindex(m, n):
-            op = self._ops[i, j]
-            a, b = op.source.dim, op.range.dim
-            y[i::m][:b] += op.apply(op.source.from_numpy(U[j::n][:a].T), mu=mu).to_numpy().T
-        return self.range.from_numpy(y.T)
-
-    @property
-    def H(self):
-        adjoint_ops = np.zeros_like(self._ops).T
-        for i, j in np.ndindex(*adjoint_ops.shape):
-            adjoint_ops[i, j] = self._ops[j, i].H
-        return self.with_(_ops=adjoint_ops, source_id=self.range_id, range_id=self.source_id,
-                          name=self.name + '_adjoint')
