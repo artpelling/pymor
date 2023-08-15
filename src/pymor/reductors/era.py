@@ -14,7 +14,7 @@ from pymor.models.iosys import LTIModel
 from pymor.operators.constructions import IdentityOperator
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyMatrixOperator
-from pymor.operators.numpy_dft import NumpyBlockDFTBasedOperator, NumpyHankelOperator
+from pymor.operators.numpy_dft import NumpyHankelOperator
 
 
 class ERAReductor(CacheableObject):
@@ -127,12 +127,7 @@ class ERAReductor(CacheableObject):
         self.logger.info(f'Computing SVD of the {"projected " if num_left or num_right else ""}Hankel matrix ...')
         if self.force_stability:
             h = np.concatenate([h, np.zeros_like(h)[1:]], axis=0)
-
-        ops = np.zeros((p, m), dtype=object)
-        for i, j in np.ndindex(p, m):
-            ops[i, j] = NumpyHankelOperator(h[:s, i, j], r=h[s-1:, i, j])
-        H = NumpyBlockDFTBasedOperator(ops)
-
+        H = NumpyHankelOperator(h[:s], r=h[s-1:])
         U, sv, V = spla.svd(to_matrix(H), full_matrices=False)
         return sv, U.T, V
 
@@ -281,12 +276,8 @@ class RandomizedERAReductor(ERAReductor):
             self.logger.info('Data has low rank! Accelerating computation with input tangential projections ...')
             num_right = p * s
         self._project_markov_parameters(num_left, num_right) if num_left or num_right else self.data
-
-        ops = np.zeros((p, m), dtype=object)
-        for i, j in np.ndindex(p, m):
-            ops[i, j] = NumpyHankelOperator(self.data[:s,i,j], r=None if self.force_stability else self.data[s-1:,i,j])
-
-        rrf = RandomizedRangeFinder(NumpyBlockDFTBasedOperator(ops), **self.rsvd_opts)
+        H = NumpyHankelOperator(self.data[:s], r=None if self.force_stability else self.data[s-1:])
+        rrf = RandomizedRangeFinder(H, **self.rsvd_opts)
         return rrf
 
     def _sv_U_V(self, r, num_left, num_right):
