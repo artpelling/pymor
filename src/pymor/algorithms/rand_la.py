@@ -215,7 +215,8 @@ class RandomizedRangeFinder(ImmutableObject):
         for _ in range(subspace_iterations):
             self._Q.append(self.A.source.empty())
             self._Q.append(self.A.range.empty())
-        self._Q = tuple(self._Q)
+        #self._Q = tuple(self._Q)
+        self.scipy = True
         self._adjoint_op = A if self_adjoint else AdjointOperator(A, source_product=source_product,
                                                                   range_product=range_product)
         self._estimator = RandomizedNormEstimator(A, source_product=source_product, range_product=range_product,
@@ -269,24 +270,52 @@ class RandomizedRangeFinder(ImmutableObject):
 
                 offset = len(self._Q[0])
                 with self.logger.block('Sampling Operator ...'):
-                    self._Q[0].append(self.A.apply(W))
+                    if self.scipy:
+                        AW = self.A.apply(W)
+                    else:
+                        self._Q[0].append(self.A.apply(W))
 
                 with self.logger.block('Orthogonalizing ...'):
-                    gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
+                    if offset == 0 and self.scipy:
+                        self.logger.info('Scipy')
+                        self._Q[0] = self.A.range.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
+                    else:
+                        self.logger.info('Pymor')
+                        gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
 
-                    for i in range(self.subspace_iterations):
-                        self.logger.block(f'Subspace iteration {i+1} ...')
-                        i = 2*i + 1
+                for i in range(self.subspace_iterations):
+                    self.logger.block(f'Subspace iteration {i+1} ...')
+                    i = 2*i + 1
 
-                        k = len(self._Q[i-1]) - offset  # check if GS removed vectors
-                        offset = len(self._Q[i])
-                        self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
-                        gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
+                    k = len(self._Q[i-1]) - offset  # check if GS removed vectors
+                    offset = len(self._Q[i])
+                    with self.logger.block('Sampling Operator ...'):
+                        if self.scipy:
+                            AW = self._adjoint_op.apply(self._Q[i-1][-k:])
+                        else:
+                            self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
+                    with self.logger.block('Orthogonalizing ...'):
+                        if offset == 0 and self.scipy:
+                            self.logger.info('Scipy')
+                            self._Q[i] = self.A.source.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
+                        else:
+                            self.logger.info('Pymor')
+                            gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
 
-                        k = len(self._Q[i]) - offset  # check if GS removed vectors
-                        offset = len(self._Q[i+1])
-                        self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
-                        gram_schmidt(self._Q[i+1], self.range_product, offset=offset, copy=False)
+                    k = len(self._Q[i]) - offset  # check if GS removed vectors
+                    offset = len(self._Q[i+1])
+                    with self.logger.block('Sampling Operator ...'):
+                        if self.scipy:
+                            AW = self.A.apply(self._Q[i][-k:])
+                        else:
+                            self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
+                    with self.logger.block('Orthogonalizing ...'):
+                        if offset == 0 and self.scipy:
+                            self.logger.info('Scipy')
+                            self._Q[i+1] = self.A.range.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
+                        else:
+                            self.logger.info('Pymor')
+                            gram_schmidt(self._Q[i+1], self.source_product, offset=offset, copy=False)
 
             k = basis_size - len(self._Q[-1])
             if k > 0:

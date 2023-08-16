@@ -294,7 +294,9 @@ class RandomizedERAReductor(ERAReductor):
 
             with self.logger.block(f'Computing transposed SVD in the reduced space ({len(Q)}x{Q.dim})...'):
                 B = T.apply_inverse(H.apply_adjoint(S.apply(Q)))
-                V, sv, Uh_b = qr_svd(B, product=T, modes=r, rtol=0)
+                V, sv, Uh_b = spla.svd(B.to_numpy().T, full_matrices=False)
+                V = B.space.from_numpy(V.T)
+                #V, sv, Uh_b = qr_svd(B, product=T, modes=r, rtol=0)
 
             with self.logger.block('Backprojecting the left'
                               + f'{" " if isinstance(S, IdentityOperator) else " generalized "}'
