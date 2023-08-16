@@ -279,15 +279,15 @@ class RandomizedRangeFinder(ImmutableObject):
                     i = 2*i + 1
 
                     with self.logger.block('Sampling Operator ...'):
-                        AW = self._adjoint_op.apply(AW).to_numpy().T
+                        AW = self._adjoint_op.apply(self._adjoint_op.source.from_numpy(AW.T)).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
                         AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
 
                     with self.logger.block('Sampling Operator ...'):
-                            AW = self.A.apply(AW).to_numpy().T
+                            AW = self.A.apply(self.A.source.from_numpy(AW.T)).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
                             AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
-        return self.A.source.from_numpy(A.T)
+        return self.A.source.from_numpy(AW.T)
 
     @defaults('basis_size', 'tol', 'num_testvecs', 'p_fail', 'max_basis_size')
     def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, max_basis_size=500):
