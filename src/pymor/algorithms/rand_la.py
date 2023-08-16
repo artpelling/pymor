@@ -287,7 +287,7 @@ class RandomizedRangeFinder(ImmutableObject):
                             AW = self.A.apply(self.A.source.from_numpy(AW.T)).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
                             AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
-        return self.A.source.from_numpy(AW.T)
+        return self.A.range.from_numpy(AW.T)
 
     @defaults('basis_size', 'tol', 'num_testvecs', 'p_fail', 'max_basis_size')
     def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, max_basis_size=500):
@@ -347,7 +347,7 @@ class RandomizedRangeFinder(ImmutableObject):
 
         with self.logger.block('Finding range ...'):
             with self.logger.block(f'Approximating range basis of dimension {basis_size} ...'):
-                self._find_range(basis_size)
+                self._Q[-1] = self._find_range(basis_size)
 
             if tol is not None:
                 err = self.estimate_error(basis_size, num_testvecs, p_fail/N)
