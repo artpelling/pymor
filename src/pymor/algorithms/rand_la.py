@@ -270,58 +270,24 @@ class RandomizedRangeFinder(ImmutableObject):
 
                 offset = len(self._Q[0])
                 with self.logger.block('Sampling Operator ...'):
-                    if self.scipy:
-                        AW = self.A.apply(W)
-                    else:
-                        self._Q[0].append(self.A.apply(W))
-
+                    AW = self.A.apply(W).to_numpy().T
                 with self.logger.block('Orthogonalizing ...'):
-                    if offset == 0 and self.scipy:
-                        self.logger.info('Scipy')
-                        self._Q[0] = self.A.range.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
-                    else:
-                        self.logger.info('Pymor')
-                        gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
+                    AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
 
                 for i in range(self.subspace_iterations):
                     self.logger.block(f'Subspace iteration {i+1} ...')
                     i = 2*i + 1
 
-                    k = len(self._Q[i-1]) - offset  # check if GS removed vectors
-                    offset = len(self._Q[i])
                     with self.logger.block('Sampling Operator ...'):
-                        if self.scipy:
-                            AW = self._adjoint_op.apply(self._Q[i-1][-k:])
-                        else:
-                            self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
+                        AW = self._adjoint_op.apply(AW).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
-                        if offset == 0 and self.scipy:
-                            self.logger.info('Scipy')
-                            self._Q[i] = self.A.source.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
-                        else:
-                            self.logger.info('Pymor')
-                            gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
+                        AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
 
-                    k = len(self._Q[i]) - offset  # check if GS removed vectors
-                    offset = len(self._Q[i+1])
                     with self.logger.block('Sampling Operator ...'):
-                        if self.scipy:
-                            AW = self.A.apply(self._Q[i][-k:])
-                        else:
-                            self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
+                            AW = self.A.apply(AW).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
-                        if offset == 0 and self.scipy:
-                            self.logger.info('Scipy')
-                            self._Q[i+1] = self.A.range.from_numpy(spla.qr(AW.to_numpy().T, overwrite_a=True, mode='economic')[0].T)
-                        else:
-                            self.logger.info('Pymor')
-                            gram_schmidt(self._Q[i+1], self.source_product, offset=offset, copy=False)
-
-            k = basis_size - len(self._Q[-1])
-            if k > 0:
-                self.logger.warning(f'{k} vector{"s" if k > 1 else ""} removed in gram_schmidt!')
-
-        return self._Q[-1][:basis_size]
+                            AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
+        return self.A.source.from_numpy(A.T)
 
     @defaults('basis_size', 'tol', 'num_testvecs', 'p_fail', 'max_basis_size')
     def find_range(self, basis_size=8, tol=None, num_testvecs=20, p_fail=1e-14, max_basis_size=500):
