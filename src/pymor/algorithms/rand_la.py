@@ -272,7 +272,7 @@ class RandomizedRangeFinder(ImmutableObject):
                     self._Q[0].append(self.A.apply(W))
 
                 with self.logger.block('Orthogonalizing ...'):
-                    gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False)
+                    gram_schmidt(self._Q[0], self.range_product, offset=offset, copy=False, reiterate=False)
 
                 for i in range(self.subspace_iterations):
                     self.logger.block(f'Subspace iteration {i+1} ...')
@@ -283,14 +283,14 @@ class RandomizedRangeFinder(ImmutableObject):
                     with self.logger.block('Sampling Operator ...'):
                         self._Q[i].append(self._adjoint_op.apply(self._Q[i-1][-k:]))
                     with self.logger.block('Orthogonalizing ...'):
-                        gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False)
+                        gram_schmidt(self._Q[i], self.source_product, offset=offset, copy=False, reiterate=False)
 
                     k = len(self._Q[i]) - offset  # check if GS removed vectors
                     offset = len(self._Q[i+1])
                     with self.logger.block('Sampling Operator ...'):
                         self._Q[i+1].append(self.A.apply(self._Q[i][-k:]))
                     with self.logger.block('Orthogonalizing ...'):
-                        gram_schmidt(self._Q[i+1], self.range_product, offset=offset, copy=False)
+                        gram_schmidt(self._Q[i+1], self.range_product, offset=offset, copy=False, reiterate=False)
 
             k = basis_size - len(self._Q[-1])
             if k > 0:
