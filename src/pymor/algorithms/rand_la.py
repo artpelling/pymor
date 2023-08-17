@@ -284,9 +284,9 @@ class RandomizedRangeFinder(ImmutableObject):
                         AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
 
                     with self.logger.block('Sampling Operator ...'):
-                            AW = self.A.apply(self.A.source.from_numpy(AW.T)).to_numpy().T
+                        AW = self.A.apply(self.A.source.from_numpy(AW.T)).to_numpy().T
                     with self.logger.block('Orthogonalizing ...'):
-                            AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
+                        AW = spla.qr(AW, overwrite_a=True, mode='economic')[0]
         return self.A.range.from_numpy(AW.T)
 
     @defaults('basis_size', 'tol', 'num_testvecs', 'p_fail', 'max_basis_size')
