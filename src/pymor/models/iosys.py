@@ -890,7 +890,8 @@ class LTIModel(Model):
                         e[i] = self.sampling_time
                     return e
                 input = GenericFunction(mapping=input, shape_range=(self.dim_input,))
-                data = self.with_(initial_data=self.solution_space.zeros(1)).compute(input=input, output=True, solution=return_solution, mu=mu)
+                data = self.with_(initial_data=self.solution_space.zeros(1)).compute(
+                    input=input, output=True, solution=return_solution, mu=mu)
 
             output[..., i] = data['output']
             if return_solution:
@@ -932,7 +933,7 @@ class LTIModel(Model):
         for i in range(self.dim_input):
             def input(t):
                 e = np.zeros(self.dim_input)
-                e[i] =  1 * self.sampling_time if self.sampling_time > 0 else 1
+                e[i] = self.sampling_time if self.sampling_time > 0 else 1
                 return e
 
             input = GenericFunction(mapping=input, shape_range=(self.dim_input,))
