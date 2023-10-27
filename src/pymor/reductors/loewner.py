@@ -11,42 +11,9 @@ from pymor.models.transfer_function import TransferFunction
 from pymor.tools.random import new_rng
 
 
-class LoewnerReductor(CacheableObject):
-    """Reductor based on Loewner interpolation framework.
-
-    The reductor implements interpolation based on the Loewner framework as in :cite:`ALI17`.
-
-    Parameters
-    ----------
-    s
-        |Numpy Array| of shape (n,) containing the frequencies.
-    Hs
-        |Numpy Array| of shape (n, p, m) for MIMO systems with p outputs and m inputs or
-        |Numpy Array| of shape (n,) for SISO systems where the |Numpy Arrays| resemble the transfer
-        function samples. Alternatively, |TransferFunction| or `Model` with `transfer_function`
-        attribute.
-    partitioning
-        `str` or `tuple` of length 2. Strings can either be 'even-odd' or 'half-half' defining
-        the partitioning rule. A user-defined partitioning can be defined by passing a tuple of the
-        left and right indices. Defaults to `even-odd`.
-    ordering
-        The ordering with respect to which the partitioning rule is executed. Can be either
-        'magnitude', 'random' or 'regular'. Defaults to 'regular'.
-    conjugate
-        Whether to guarantee realness of reduced |LTIModel| by keeping complex conjugates in the
-        same partitioning or not. If `True` will automatically generate conjugate data if necessary.
-    mimo_handling
-        Option indicating how to treat MIMO systems. Can be:
-
-        - `'random'` for using random tangential directions.
-        - `'full'` for fully interpolating all input-output pairs.
-        - Tuple `(ltd, rtd)` where `ltd` corresponds to left and `rtd` to right tangential
-          directions.
-    """
-
-    cache_region = 'memory'
-
-    def __init__(self, s, Hs, partitioning='even-odd', ordering='regular', conjugate=True, mimo_handling='random'):
+class GenericLoewnerReductor(CacheableObject):
+    def __init__(self, s, Hs, partitioning='even-odd', ordering='regular', conjugate=True,
+                 mimo_handling='random', name=None):
         assert isinstance(s, np.ndarray)
         if hasattr(Hs, 'transfer_function'):
             Hs = Hs.transfer_function
@@ -104,51 +71,6 @@ class LoewnerReductor(CacheableObject):
             self.dim_input = 1
 
         self.__auto_init(locals())
-
-    def reduce(self, r=None, tol=1e-12):
-        """Reduce using Loewner framework.
-
-        Parameters
-        ----------
-        r
-            Integer for target order of reduced model. If an interpolant with order less than r
-            exists then the output will have the minimal order of an interpolant. Otherwise, the
-            output will be an |LTIModel| with order r. If `None` the order of the reduced model will
-            be the minimal order of an interpolant.
-        tol
-            Truncation tolerance for rank of Loewner matrices.
-
-        Returns
-        -------
-        rom
-            Reduced |LTIModel|.
-        """
-        L, Ls, V, W = self.loewner_quadruple()
-        Y, S1, S2, Xh = self._loewner_svds(L, Ls)
-
-        r1 = len(S1[S1/S1[0] > tol])
-        r2 = len(S2[S2/S2[0] > tol])
-        if r is None or r > r1 or r > r2:
-            if r1 != r2:
-                self.logger.warning(f'Mismatch in numerical rank of stacked Loewner matrices ({r1} and {r2}).'
-                                    ' Consider increasing tol, specifying r or changing the partitioning.')
-                r = min(r1, r2)
-            else:
-                r = r1
-
-        Yhr = Y[:, :r].conj().T
-        Xr = Xh[:r, :].conj().T
-
-        B = Yhr @ V
-        C = W @ Xr
-        E = -Yhr @ L @ Xr
-        A = -Yhr @ Ls @ Xr
-
-        if self.conjugate:
-            A, B, C, E = A.real, B.real, C.real, E.real
-
-        return LTIModel.from_matrices(A, B, C, D=None, E=E)
-
 
     def _partition_frequencies(self):
         """Create a frequency partitioning."""
@@ -332,6 +254,91 @@ class LoewnerReductor(CacheableObject):
             W = np.concatenate(np.concatenate(W, axis=0), axis=1)
 
         return L, Ls, V, W
+
+
+class LoewnerReductor(GenericLoewnerReductor):
+    """Reductor based on Loewner interpolation framework.
+
+    The reductor implements interpolation based on the Loewner framework as in :cite:`ALI17`.
+
+    Parameters
+    ----------
+    s
+        |Numpy Array| of shape (n,) containing the frequencies.
+    Hs
+        |Numpy Array| of shape (n, p, m) for MIMO systems with p outputs and m inputs or
+        |Numpy Array| of shape (n,) for SISO systems where the |Numpy Arrays| resemble the transfer
+        function samples. Alternatively, |TransferFunction| or `Model` with `transfer_function`
+        attribute.
+    partitioning
+        `str` or `tuple` of length 2. Strings can either be 'even-odd' or 'half-half' defining
+        the partitioning rule. A user-defined partitioning can be defined by passing a tuple of the
+        left and right indices. Defaults to `even-odd`.
+    ordering
+        The ordering with respect to which the partitioning rule is executed. Can be either
+        'magnitude', 'random' or 'regular'. Defaults to 'regular'.
+    conjugate
+        Whether to guarantee realness of reduced |LTIModel| by keeping complex conjugates in the
+        same partitioning or not. If `True` will automatically generate conjugate data if necessary.
+    mimo_handling
+        Option indicating how to treat MIMO systems. Can be:
+
+        - `'random'` for using random tangential directions.
+        - `'full'` for fully interpolating all input-output pairs.
+        - Tuple `(ltd, rtd)` where `ltd` corresponds to left and `rtd` to right tangential
+          directions.
+    """
+
+    cache_region = 'memory'
+
+    def __init__(self, s, Hs, partitioning='even-odd', ordering='regular', conjugate=True,
+                 mimo_handling='random', name=None):
+        super().__init__(s, Hs, partitioning=partitioning, ordering=ordering, conjugate=conjugate,
+                         mimo_handling=mimo_handling, name=name)
+
+    def reduce(self, r=None, tol=1e-12):
+        """Reduce using Loewner framework.
+
+        Parameters
+        ----------
+        r
+            Integer for target order of reduced model. If an interpolant with order less than r
+            exists then the output will have the minimal order of an interpolant. Otherwise, the
+            output will be an |LTIModel| with order r. If `None` the order of the reduced model will
+            be the minimal order of an interpolant.
+        tol
+            Truncation tolerance for rank of Loewner matrices.
+
+        Returns
+        -------
+        rom
+            Reduced |LTIModel|.
+        """
+        L, Ls, V, W = self.loewner_quadruple()
+        Y, S1, S2, Xh = self._loewner_svds(L, Ls)
+
+        r1 = len(S1[S1/S1[0] > tol])
+        r2 = len(S2[S2/S2[0] > tol])
+        if r is None or r > r1 or r > r2:
+            if r1 != r2:
+                self.logger.warning(f'Mismatch in numerical rank of stacked Loewner matrices ({r1} and {r2}).'
+                                    ' Consider increasing tol, specifying r or changing the partitioning.')
+                r = min(r1, r2)
+            else:
+                r = r1
+
+        Yhr = Y[:, :r].conj().T
+        Xr = Xh[:r, :].conj().T
+
+        B = Yhr @ V
+        C = W @ Xr
+        E = -Yhr @ L @ Xr
+        A = -Yhr @ Ls @ Xr
+
+        if self.conjugate:
+            A, B, C, E = A.real, B.real, C.real, E.real
+
+        return LTIModel.from_matrices(A, B, C, D=None, E=E)
 
     @cached
     def _loewner_svds(self, L, Ls):
