@@ -3,10 +3,9 @@
 import numpy as np
 import scipy.linalg as spla
 
-from pymor.core.base import BasicObject
-from pymor.core.cache import CacheableObject, cached
+from pymor.core.cache import cached
 from pymor.models.iosys import LTIModel
-from pymor.reductors.loewner import GenericLoewnerReductor, LoewnerReductor
+from pymor.reductors.loewner import GenericLoewnerReductor
 
 
 class QuadBTReductor(GenericLoewnerReductor):
@@ -16,7 +15,7 @@ class QuadBTReductor(GenericLoewnerReductor):
         self.quadrature_rule = quadrature_rule
         self.MT = MT
         if MT is not None:
-            s = MT(s)
+            s = MT.inverse()(s)
         super().__init__(s, Hs, partitioning=partitioning, ordering=ordering, conjugate=conjugate,
                          mimo_handling=mimo_handling, name=name)
 
@@ -65,55 +64,3 @@ class QuadBTReductor(GenericLoewnerReductor):
     @cached
     def _loewner_svds(self, L):
         return spla.svd(L, full_matrices=False)
-
-
-if __name__ == '__main__':
-    import matplotlib.pyplot as plt
-    import numpy as np
-
-    from pymor.core.logger import set_log_levels
-    from pymor.models.transforms import MoebiusTransformation
-    from pymor.operators.numpy import NumpyMatrixOperator
-
-
-    set_log_levels({'pymor.operators.constructions.LincombOperator': 'ERROR'})
-    plt.close('all')
-    n = 25
-    r = 25
-    lti = LTIModel.from_mat_file('/Users/pelling/data/slicot/iss.mat')
-
-    ss = np.logspace(-1, 2, n)
-    l = LoewnerReductor(ss, lti, mimo_handling='full')
-    q = QuadBTReductor(ss, lti)
-    rom = q.reduce(r)
-    err = lti - rom
-
-    MT = MoebiusTransformation((0,1,1,0))
-    MT = MoebiusTransformation.from_points((0, 29, np.inf))
-    qspa = QuadBTReductor(ss, lti, MT=MT)
-    rom_spa = qspa.reduce(r)
-    err_spa = lti - rom_spa
-
-    wlim = np.array((np.min(ss), np.max(ss)))
-    fig, ax = plt.subplots(figsize=(8,6))
-    lti.transfer_function.mag_plot(wlim, ax=ax, dB=True)
-    ax.scatter(ss, 20*np.log10(spla.norm(lti.transfer_function.bode(ss)[0], axis=(1,2))), marker='s', fc='none', ec='b')
-    rom.transfer_function.mag_plot(wlim, ax=ax, dB=True, linestyle='-.', c='g')
-    err.transfer_function.mag_plot(wlim, ax=ax, dB=True, linestyle=':', c='g')
-    rom_spa.transfer_function.mag_plot(wlim, ax=ax, dB=True, linestyle='-.', c='r')
-    err_spa.transfer_function.mag_plot(wlim, ax=ax, dB=True, linestyle=':', c='r')
-
-    #ax.set_xlim(wlim)
-    ax.set_xlim((10,100))
-    ax.set_ylim((-100, -12))
-    plt.savefig('/Users/pelling/projects/pymor/plot.png')
-
-    fig, ax = plt.subplots(figsize=(8,6))
-    L = l.loewner_quadruple()[0]
-    ax.semilogy(spla.svdvals(L), c='b', label=f'Loewner: {np.linalg.cond(L)}')
-    L = q.loewner_quadruple()[0]
-    ax.semilogy(spla.svdvals(L), c='g', label=f'QuadBT: {np.linalg.cond(L)}')
-    L = qspa.loewner_quadruple()[0]
-    ax.semilogy(spla.svdvals(L), c='r', label=f'QuadSPA: {np.linalg.cond(L)}')
-    plt.legend()
-    plt.savefig('/Users/pelling/projects/pymor/svds.png')
