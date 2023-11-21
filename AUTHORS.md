@@ -15,6 +15,7 @@
 
 * Art Pelling, a.pelling@tu-berlin.de
   * matrix-free implementation of circulant, Hankel and Toeplitz operators
+  * shifted Choleksy-QR algorithm
 
 ### pyMOR 2023.1
 
