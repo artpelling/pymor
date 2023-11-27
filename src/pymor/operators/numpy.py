@@ -486,19 +486,18 @@ class NumpyCirculantOperator(Operator, CacheableObject):
             l =  s // m - C.shape[0] + 1
             C = np.concatenate([C, C[1:l].conj()[::-1]])
 
-        X = rfft(vec.reshape(-1, m, k), axis=0) if isreal else fft(x, axis=0)
-        y = np.zeros((n, p, k))
-        if m > p:
-            for i in range(m):
-                Y = X[:, i].reshape(-1, 1, k)*C[:, :, i, np.newaxis]
+        dtype = float if isreal else complex
+        y = np.zeros((self.range.dim, k), dtype=dtype)
+        for j in range(m):
+            x = vec[j::m]
+            X = rfft(x, axis=0) if isreal else fft(x, axis=0)
+            for i in range(p):
+                Y = X*C[:, i, j].reshape(-1, 1)
+                # setting n=n below is necessary to allow uneven lengths but considerably slower
+                # Hankel operator will always pad to even length to avoid that
                 Y = irfft(Y, n=n, axis=0) if isreal else ifft(Y, axis=0)
-                y += Y[:n]
-        else:
-            for i in range (p):
-                Y = X*C[:, i, :, np.newaxis]
-                Y = irfft(Y, n=n, axis=0) if isreal else ifft(Y, axis=0)
-                y[:, i] = np.sum(Y[:n], axis=1)
-        return y.reshape(-1, k, order='F').T
+                y[i::p] += Y[:self.range.dim // p]
+        return y.T
 
     def apply(self, U, mu=None):
         assert U in self.source
@@ -670,7 +669,6 @@ class NumpyHankelOperator(Operator):
         self.range = NumpyVectorSpace(k*p, range_id)
 
     def apply(self, U, mu=None):
-        print('in apply')
         assert U in self.source
         U = U.to_numpy().T
         n, p, m = self._circulant._arr.shape
