@@ -7,11 +7,10 @@ import numpy as np
 
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.algorithms.projection import project
-from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.models.iosys import LTIModel
 from pymor.models.transforms import MoebiusTransformation
-from pymor.operators.constructions import ConcatenationOperator, InverseOperator, VectorArrayOperator, LowRankOperator
+from pymor.operators.constructions import InverseOperator, LowRankOperator, VectorArrayOperator
 from pymor.parameters.base import Mu
 from pymor.reductors.basic import LTIPGReductor
 
@@ -112,28 +111,20 @@ class GSPAReductor(BasicObject):
         else:
             M = MoebiusTransformation(np.array([0, 1j, 1j, -s0]), normalize=True) if MT is None else MT
             a, b, c, d = M.coefficients
-            kappa = d*a - b*c
-            if old:
-                E  = a*fom_mu.E - c*fom_mu.A
-                C = fom_mu.C @ VectorArrayOperator(E.apply_inverse(fom_mu.E.apply(self.V)))
-                D = fom_mu.D + c * fom_mu.C @ VectorArrayOperator(E.apply_inverse(fom_mu.B.as_range_array()))
-                E = project(E, self.W, self.V)
-                A = project(d*fom_mu.A - b*fom_mu.E, self.W, self.V)
-                B = project(fom_mu.B, self.W, None)
-                rom = LTIModel(A, np.sqrt(kappa)*B, np.sqrt(kappa)*C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(M.inverse())
-            else:
-                E = project(fom_mu.E, self.W, self.V)
-                A = project(fom_mu.A, self.W, self.V)
-                B = project(fom_mu.B, self.W, None)
 
-                M = fom_mu.E @ LowRankOperator(self.V, E.matrix, self.W, inverted=True)
-                G = a*fom_mu.E - c*fom_mu.A
-                X1 = (InverseOperator(G) @ M @ G).apply(self.V)
-                Bv = fom_mu.B.as_range_array()
-                X2 = G.apply_inverse(M.apply(Bv) + Bv)
-                C = -fom_mu.C @ VectorArrayOperator(X1)
-                D = fom_mu.D - c*fom_mu.C @ VectorArrayOperator(X2)
-                rom = LTIModel(-kappa*A, kappa*B, C, D=D, E=-kappa*E, name=fom_mu.name+'_reduced')
+            E = project(fom_mu.E, self.W, self.V)
+            A = project(fom_mu.A, self.W, self.V)
+            B = project(fom_mu.B, self.W, None)
+
+            M = fom_mu.E @ LowRankOperator(self.V, E.matrix, self.W, inverted=True)
+            G = a*fom_mu.E - c*fom_mu.A
+            Ginv = InverseOperator(G)
+            X1 = (Ginv @ M @ G).apply(self.V)
+            Bv = fom_mu.B.as_range_array()
+            X2 = Ginv.apply(M.apply(Bv) + Bv)
+            C = fom_mu.C @ VectorArrayOperator(X1)
+            D = fom_mu.D + c*fom_mu.C @ VectorArrayOperator(X2)
+            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced')
 
         return rom
 
