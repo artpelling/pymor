@@ -4,13 +4,16 @@
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
 
 import numpy as np
+import scipy.linalg as spla
 
 from pymor.algorithms.gram_schmidt import gram_schmidt
 from pymor.algorithms.projection import project
+from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.models.iosys import LTIModel
 from pymor.models.transforms import MoebiusTransformation
 from pymor.operators.constructions import InverseOperator, LowRankOperator, VectorArrayOperator
+from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.parameters.base import Mu
 from pymor.reductors.basic import LTIPGReductor
 
@@ -116,14 +119,20 @@ class GSPAReductor(BasicObject):
             A = project(fom_mu.A, self.W, self.V)
             B = project(fom_mu.B, self.W, None)
 
-            M = fom_mu.E @ LowRankOperator(self.V, E.matrix, self.W, inverted=True)
-            G = a*fom_mu.E - c*fom_mu.A
-            Ginv = InverseOperator(G)
-            X1 = (Ginv @ M @ G).apply(self.V)
-            Bv = fom_mu.B.as_range_array()
-            X2 = Ginv.apply(M.apply(Bv) + Bv)
-            C = fom_mu.C @ VectorArrayOperator(X1)
-            D = fom_mu.D + c*fom_mu.C @ VectorArrayOperator(X2)
+            G = to_matrix(a*fom_mu.E - c*fom_mu.A, format='dense')
+            LU = spla.lu_factor(G)
+            M = to_matrix(fom_mu.E @ LowRankOperator(self.V, E.matrix, self.W, inverted=True))
+
+            Bv = to_matrix(fom_mu.B)
+            Cv = to_matrix(fom_mu.C)
+            Dv = to_matrix(fom_mu.D)
+
+            R1 = M @ G @ self.V.to_numpy().T
+            C = NumpyMatrixOperator(Cv @ spla.lu_solve(LU, R1))
+
+            R2 = M @ Bv + Bv
+            D = NumpyMatrixOperator(Dv + c*Cv @ spla.lu_solve(LU, R2))
+
             rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced')
 
         return rom
