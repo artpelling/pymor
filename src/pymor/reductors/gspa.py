@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 # This file is part of the pyMOR project (https://www.pymor.org).
 # Copyright pyMOR developers and contributors. All rights reserved.
 # License: BSD 2-Clause License (https://opensource.org/licenses/BSD-2-Clause)
@@ -12,7 +11,6 @@ from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.base import BasicObject
 from pymor.models.iosys import LTIModel
 from pymor.models.transforms import MoebiusTransformation
-from pymor.operators.constructions import InverseOperator, LowRankOperator, VectorArrayOperator
 from pymor.operators.numpy import NumpyMatrixOperator
 from pymor.parameters.base import Mu
 from pymor.reductors.basic import LTIPGReductor
@@ -50,7 +48,7 @@ class GSPAReductor(BasicObject):
         sv = self._sv_U_V()[0]
         return 2 * sv[:0:-1].cumsum()[::-1]
 
-    def reduce(self, r=None, tol=None, s0=np.inf, projection='bfsr', MT=None, old=True):
+    def reduce(self, r=None, tol=None, s0=None, projection='bfsr', MT=None, old=True):
         """Generalized Singular Perturbation Approximation.
 
         Parameters
@@ -115,25 +113,43 @@ class GSPAReductor(BasicObject):
             M = MoebiusTransformation(np.array([0, 1j, 1j, -s0]), normalize=True) if MT is None else MT
             a, b, c, d = M.coefficients
 
+            # E = project(fom_mu.E, self.W, self.V)
+            # A = project(fom_mu.A, self.W, self.V)
+            # B = project(fom_mu.B, self.W, None)
+
+            # G = to_matrix(d*fom_mu.E + c*fom_mu.A, format='dense')
+            # LU = spla.lu_factor(G)
+            # M = to_matrix(fom_mu.E @ LowRankOperator(self.V, E.matrix,
+            # self.W, inverted=True), format='dense')
+
+            # Bv = to_matrix(fom_mu.B, format='dense')
+            # Cv = to_matrix(fom_mu.C, format='dense')
+            # Dv = to_matrix(fom_mu.D, format='dense')
+
+            # R1 = M @ G @ self.V.to_numpy().T
+            # C = NumpyMatrixOperator(Cv @ spla.lu_solve(LU, R1))
+
+            # R2 = M @ Bv - Bv
+            # D = NumpyMatrixOperator(Dv + c*Cv @ spla.lu_solve(LU, R2))
+
+            # rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced')
+
+
+            kappa = np.sqrt(complex(d*a-b*c))
+            As, Bs, Cs, *_ = fom_mu.to_matrices(format='dense')
+            Es = to_matrix(fom_mu.E, format='dense')
+
+            LU = spla.lu_factor(d*Es+c*As)
+            EG = spla.lu_solve(LU, Es.T.conj(), trans=2).T.conj()
+            CG = spla.lu_solve(LU, Cs.T.conj(), trans=2).T.conj()
+
             E = project(fom_mu.E, self.W, self.V)
-            A = project(fom_mu.A, self.W, self.V)
-            B = project(fom_mu.B, self.W, None)
+            A = project(NumpyMatrixOperator(EG @ (a*As + b*Es), source_id='STATE', range_id='STATE'), self.W, self.V)
+            B = project(NumpyMatrixOperator(kappa * EG @ Bs, range_id='STATE'), self.W, None)
+            C = project(NumpyMatrixOperator(kappa * CG @ Es, source_id='STATE'), None, self.V)
+            D = fom_mu.D - NumpyMatrixOperator(c * CG @ Bs)
 
-            G = to_matrix(a*fom_mu.E - c*fom_mu.A, format='dense')
-            LU = spla.lu_factor(G)
-            M = to_matrix(fom_mu.E @ LowRankOperator(self.V, E.matrix, self.W, inverted=True))
-
-            Bv = to_matrix(fom_mu.B)
-            Cv = to_matrix(fom_mu.C)
-            Dv = to_matrix(fom_mu.D)
-
-            R1 = M @ G @ self.V.to_numpy().T
-            C = NumpyMatrixOperator(Cv @ spla.lu_solve(LU, R1))
-
-            R2 = M @ Bv + Bv
-            D = NumpyMatrixOperator(Dv + c*Cv @ spla.lu_solve(LU, R2))
-
-            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced')
+            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(MT.inverse())
 
         return rom
 

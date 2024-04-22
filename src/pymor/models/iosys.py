@@ -1509,15 +1509,14 @@ class LTIModel(Model):
         """
         assert isinstance(M, MoebiusTransformation)
 
-        a, b, c, d = MoebiusTransformation(M.coefficients, normalize=True).coefficients
-        kappa = d*a - b*c
-        Et = a * self.E - c * self.A
-        At = d * self.A - b * self.E
-        Bt = np.sqrt(kappa) * self.B
+        a, b, c, d = M.coefficients
+        kappa = np.sqrt(complex(d*a-b*c))
+        Et = d  * self.E + c  * self.A
+        At = a  * self.A + b  * self.E
+        Bt = kappa * self.B
         C = VectorArrayOperator(Et.apply_inverse_adjoint(self.C.H.as_range_array())).H
-        Ct = np.sqrt(kappa) * C @ self.E
-        Dt = self.D + c * C @ self.B
-
+        Ct = kappa * C @ self.E
+        Dt = self.D - c * C @ self.B
         return LTIModel(At, Bt, Ct, D=Dt, E=Et, sampling_time=sampling_time)
 
     def to_discrete(self, sampling_time, method='Tustin', w0=0):

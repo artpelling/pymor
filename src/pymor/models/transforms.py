@@ -155,7 +155,7 @@ class BilinearTransformation(MoebiusTransformation):
     def __init__(self, x, name=None):
         assert isinstance(x, Number)
         assert x > 0
-        super().__init__([x, -x, 1, 1], name=name)
+        super().__init__([x/2, 1, -x/2, 1], name=name)
         self.__auto_init(locals())
 
 
@@ -176,3 +176,12 @@ class CayleyTransformation(MoebiusTransformation):
     def __init__(self, name=None):
         super().__init__([1, -1j, 1, 1j], name=name)
         self.__auto_init(locals())
+
+
+class ReciprocalTransformation(MoebiusTransformation):
+    def __init__(self, name=None):
+        super().__init__([0, 1, 1, 0], name=name)
+        self.__auto_init(locals())
+
+    def inverse(self):
+        return self
