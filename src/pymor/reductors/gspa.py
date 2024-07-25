@@ -144,12 +144,12 @@ class GSPAReductor(BasicObject):
             CG = spla.lu_solve(LU, Cs.T.conj(), trans=2).T.conj()
 
             E = project(fom_mu.E, self.W, self.V)
-            A = project(NumpyMatrixOperator(EG @ (a*As + b*Es), source_id='STATE', range_id='STATE'), self.W, self.V)
-            B = project(NumpyMatrixOperator(kappa * EG @ Bs, range_id='STATE'), self.W, None)
-            C = project(NumpyMatrixOperator(kappa * CG @ Es, source_id='STATE'), None, self.V)
+            A = project(NumpyMatrixOperator(EG @ (a*As + b*Es)), self.W, self.V)
+            B = project(NumpyMatrixOperator(kappa * EG @ Bs), self.W, None)
+            C = project(NumpyMatrixOperator(kappa * CG @ Es), None, self.V)
             D = fom_mu.D - NumpyMatrixOperator(c * CG @ Bs)
 
-            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(MT.inverse())
+            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(M.inverse())
 
         return rom
 
