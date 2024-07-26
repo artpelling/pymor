@@ -139,17 +139,20 @@ class GSPAReductor(BasicObject):
             As, Bs, Cs, *_ = fom_mu.to_matrices(format='dense')
             Es = to_matrix(fom_mu.E, format='dense')
 
+            self.logger.info('Solving LU ..')
             LU = spla.lu_factor(d*Es+c*As)
             EG = spla.lu_solve(LU, Es.T.conj(), trans=2).T.conj()
             CG = spla.lu_solve(LU, Cs.T.conj(), trans=2).T.conj()
 
+            self.logger.info('Constructing model ...')
             E = project(fom_mu.E, self.W, self.V)
             A = project(NumpyMatrixOperator(EG @ (a*As + b*Es)), self.W, self.V)
             B = project(NumpyMatrixOperator(kappa * EG @ Bs), self.W, None)
             C = project(NumpyMatrixOperator(kappa * CG @ Es), None, self.V)
             D = fom_mu.D - NumpyMatrixOperator(c * CG @ Bs)
 
-            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(M.inverse())
+            self.logger.info('Backtransforming ROM ...')
+            rom = LTIModel(A, B, C, D=D, E=E, name=fom_mu.name+'_reduced').moebius_substitution(M.inverse(), sampling_time=self.fom.sampling_time)
 
         return rom
 
