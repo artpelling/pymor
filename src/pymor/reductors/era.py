@@ -179,7 +179,7 @@ class ERAReductor(CacheableObject):
 
         a = p * s if num_right is None and p * s < m else (num_right or m)
         b = m * s if num_left is None and m * s < p else (num_left or p)
-        err = (np.sqrt(np.arange(len(sv)) + a + b) * sv)[1:]
+        err = ((np.arange(len(sv)) + a + b) * sv**2)[1:]
 
         err = 2 * err if num_left or num_right else err
         if num_left:
@@ -271,6 +271,9 @@ class RandERAReductor(ERAReductor):
         self._H = NumpyHankelOperator(data[:s], r=data[s-1:])
         self._last_sv_U_V = None
         self._rrf = None
+
+    def _sv_U_V(self, num_left, num_right):
+        return self._last_sv_U_V
 
     def _init_rrf(self):
         self._rrf = RandomizedRangeFinder(
