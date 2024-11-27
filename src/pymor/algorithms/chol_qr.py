@@ -115,7 +115,10 @@ def shifted_chol_qr(A, product=None, return_R=False, maxiter=3, offset=0, orth_t
         with logger.block(f'Iteration {iter}'):
             # This will compute the Cholesky factor of the lower right block
             # and keep applying shifts if it breaks down.
-            X -= B@B.T
+            if iter == 1 and offset > 0:
+                X = 2*X - 2*B@B.T
+            else:
+                X -= B@B.T
             it = 0
             while True:
                 try:
