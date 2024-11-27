@@ -253,7 +253,7 @@ class ERAReductor(CacheableObject):
             B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
 
         return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
-                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv)})
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
 
 
 class RandERAReductor(ERAReductor):
@@ -324,4 +324,4 @@ class RandERAReductor(ERAReductor):
             B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
 
         return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
-                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv)})
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
