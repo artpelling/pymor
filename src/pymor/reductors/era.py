@@ -193,10 +193,11 @@ class ERAReductor(CacheableObject):
 
     def _construct_abcd(self, sv, U, V, m, p):
         sqsv = np.sqrt(sv)
-        A = NumpyMatrixOperator((1/sqsv).reshape(-1,1)*spla.lstsq(U[: -p], U[p:])[0]*sqsv.reshape(1,-1))
+        A, res, *_ = spla.lstsq(U[: -p], U[p:])
+        A = NumpyMatrixOperator((1/sqsv).reshape(-1,1)*A*sqsv.reshape(1,-1))
         B = NumpyMatrixOperator((V[:m]*sqsv.reshape(1, -1)).T)
         C = NumpyMatrixOperator(U[:p]*sqsv.reshape(1, -1))
-        return A, B, C, self.feedthrough
+        return A, B, C, self.feedthrough, res
 
     def reduce(self, r=None, tol=None, num_left=None, num_right=None):
         """Construct a minimal realization.
@@ -315,7 +316,7 @@ class RandERAReductor(ERAReductor):
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
         _, p, m = self.data.shape
-        A, B, C, D = self._construct_abcd(sv, U, V, self.num_right or m, self.num_left or p)
+        A, B, C, D, res = self._construct_abcd(sv, U, V, self.num_right or m, self.num_left or p)
 
         if self.num_left:
             self.logger.info('Backprojecting tangential output directions ...')
@@ -327,4 +328,4 @@ class RandERAReductor(ERAReductor):
             B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
 
         return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
-                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv}), res
