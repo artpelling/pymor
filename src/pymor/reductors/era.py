@@ -6,7 +6,6 @@ import numpy as np
 import scipy.linalg as spla
 
 from pymor.algorithms.projection import project
-from pymor.algorithms.rand_la import RandomizedRangeFinder
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.cache import CacheableObject, cached
 from pymor.models.iosys import LTIModel
@@ -193,11 +192,11 @@ class ERAReductor(CacheableObject):
 
     def _construct_abcd(self, sv, U, V, m, p):
         sqsv = np.sqrt(sv)
-        A, res, *_ = spla.lstsq(U[: -p], U[p:])
+        A, *_ = spla.lstsq(U[: -p], U[p:])
         A = NumpyMatrixOperator((1/sqsv).reshape(-1,1)*A*sqsv.reshape(1,-1))
         B = NumpyMatrixOperator((V[:m]*sqsv.reshape(1, -1)).T)
         C = NumpyMatrixOperator(U[:p]*sqsv.reshape(1, -1))
-        return A, B, C, self.feedthrough, res
+        return A, B, C, self.feedthrough
 
     def reduce(self, r=None, tol=None, num_left=None, num_right=None):
         """Construct a minimal realization.
