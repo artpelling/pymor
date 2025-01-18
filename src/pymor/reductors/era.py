@@ -6,9 +6,10 @@ import numpy as np
 import scipy.linalg as spla
 
 from pymor.algorithms.projection import project
+from pymor.algorithms.rand_la import RandomizedRangeFinder
 from pymor.algorithms.to_matrix import to_matrix
 from pymor.core.cache import CacheableObject, cached
-from pymor.models.iosys import LTIModel
+from pymor.models.iosys import LinearDelayModel, LTIModel
 from pymor.operators.interface import Operator
 from pymor.operators.numpy import NumpyHankelOperator, NumpyMatrixOperator
 
@@ -113,19 +114,14 @@ class ERAReductor(CacheableObject):
     def _sv_U_V(self, num_left, num_right):
         n, p, m = self.data.shape
         s = n if self.force_stability else (n + 1) // 2
-        if num_left is None and m * s < p:
-            self.logger.info('Data has low rank! Accelerating computation with output tangential projections ...')
-            num_left = m * s
-        if num_right is None and p * s < m:
-            self.logger.info('Data has low rank! Accelerating computation with input tangential projections ...')
-            num_right = p * s
+
         h = self._project_markov_parameters(num_left, num_right) if num_left or num_right else self.data
         self.logger.info(f'Computing SVD of the {"projected " if num_left or num_right else ""}Hankel matrix ...')
         if self.force_stability:
             h = np.concatenate([h, np.zeros_like(h)[1:]], axis=0)
         H = NumpyHankelOperator(h[:s], r=h[s-1:])
-        U, sv, V = spla.svd(to_matrix(H), full_matrices=False)
-        return sv, U.T, V
+        U, sv, Vh = spla.svd(to_matrix(H), full_matrices=False)
+        return sv, U, Vh.T
 
     def output_projector(self, num_left):
         """Construct the left/output projector :math:`W_1`."""
@@ -195,6 +191,13 @@ class ERAReductor(CacheableObject):
 
         return np.sqrt(err)
 
+    def _construct_abcd(self, sv, U, V, m, p):
+        sqsv = np.sqrt(sv)
+        A = NumpyMatrixOperator((1/sqsv).reshape(-1,1)*spla.lstsq(U[: -p], U[p:])[0]*sqsv.reshape(1,-1))
+        B = NumpyMatrixOperator((V[:m]*sqsv.reshape(1, -1)).T)
+        C = NumpyMatrixOperator(U[:p]*sqsv.reshape(1, -1))
+        return A, B, C, self.feedthrough
+
     def reduce(self, r=None, tol=None, num_left=None, num_right=None):
         """Construct a minimal realization.
 
@@ -221,6 +224,13 @@ class ERAReductor(CacheableObject):
         assert num_right is None or isinstance(num_right, int) and 0 < num_right < m
         assert r is None or 0 < r <= min((num_left or p), (num_right or m)) * s
 
+        if num_left is None and m * s < p:
+            self.logger.info('Data has low rank! Accelerating computation with output tangential projections ...')
+            num_left = m * s
+        if num_right is None and p * s < m:
+            self.logger.info('Data has low rank! Accelerating computation with input tangential projections ...')
+            num_right = p * s
+
         sv, U, V = self._sv_U_V(num_left, num_right)
 
         if tol is not None:
@@ -228,18 +238,10 @@ class ERAReductor(CacheableObject):
             r_tol = np.argmax(error_bounds <= tol) + 1
             r = r_tol if r is None else min(r, r_tol)
 
-        sv, U, V = sv[:r], U[:r].T, V[:r]
-
-        num_left = m * s if num_left is None and m * s < p else num_left
-        num_right = p * s if num_right is None and p * s < m else num_right
+        sv, U, V = sv[:r], U[:, :r], V[:, :r]
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
-        sqsv = np.sqrt(sv)
-        U *= sqsv.reshape(1, -1)
-        V *= sqsv.reshape(-1, 1)
-        A = NumpyMatrixOperator(spla.lstsq(U[: -(num_left or p)], U[(num_left or p):])[0])
-        B = NumpyMatrixOperator(V[:, :(num_right or m)])
-        C = NumpyMatrixOperator(U[:(num_left or p)])
+        A, B, C, D = self._construct_abcd(sv, U, V, num_right or m, num_left or p)
 
         if num_left:
             self.logger.info('Backprojecting tangential output directions ...')
@@ -250,5 +252,130 @@ class ERAReductor(CacheableObject):
             W2 = self.input_projector(num_right)
             B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
 
-        return LTIModel(A, B, C, D=self.feedthrough, sampling_time=self.sampling_time,
+        return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv)})
+
+
+class DelayERAReductor(ERAReductor):
+    def _construct_abcd(self, sv, U, V, m, p , tau):
+        sqsv = np.sqrt(sv)
+        U *= sqsv.reshape(1, -1)
+        V *= sqsv.reshape(1, -1)
+        M = np.concatenate((U[:p].T, V[:m].T), axis=1)
+        print(M.shape)
+        Q, R = spla.qr(M)
+        n = U.shape[1]
+        if tau == 1:
+            r = int(n//(tau+1))
+            U1, U2 = U[:, :r], U[:, r:2*r]
+            lhs, rhs = U1[:-p], np.concatenate((U2[:-p]-U1[p:], U2[p:]), axis=1)
+        A, Ad, _ = np.split(spla.lstsq(lhs, rhs)[0], [r, 2*r], axis=1)
+        A, Ad = NumpyMatrixOperator(A), (NumpyMatrixOperator(Ad), )
+        B = NumpyMatrixOperator(V[:m].T)
+        C = NumpyMatrixOperator(U[:p])
+        return A, Ad, B, C, self.feedthrough
+
+    def reduce(self, r=None, tol=None, tau=1):
+        """Construct a minimal realization.
+
+        Parameters
+        ----------
+        r
+            Order of the reduced model if `tol` is `None`, maximum order if `tol` is specified.
+        tol
+            Tolerance for the error bound.
+
+        Returns
+        -------
+        rom
+            Reduced-order |LTIModel|.
+        """
+        assert r is not None or tol is not None
+        n, p, m = self.data.shape
+        s = n if self.force_stability else (n + 1) // 2
+        assert r is None or 0 < r <= min(p, m) * s
+
+        sv, U, V = self._sv_U_V(None, None)
+
+        if tol is not None:
+            error_bounds = self.error_bounds()
+            r_tol = np.argmax(error_bounds <= tol) + 1
+            r = r_tol if r is None else min(r, r_tol)
+
+        sv, U, V = sv[:r], U[:, :r], V[:, :r]
+
+        self.logger.info(f'Constructing reduced realization of order {r} ...')
+        A, Ad, B, C, D = self._construct_abcd(sv, U, V, m, p, tau)
+
+        return LinearDelayModel(A, Ad, (tau,), B, C, D=D, sampling_time=self.sampling_time)
+
+
+class RandERAReductor(ERAReductor):
+    def __init__(self, data, sampling_time, power_iterations=2, block_size=20, force_stability=True, feedthrough=None,
+                 qr_method='gram_schmidt', qr_opts={}, num_left=None, num_right=None):
+        super().__init__(data, sampling_time, force_stability, feedthrough)
+        data = data.copy()
+        if num_left is not None or num_right is not None:
+            self.logger.info('Computing the projected Markov parameters ...')
+            data = self._project_markov_parameters(num_left, num_right)
+        self.__auto_init(locals())
+        if self.force_stability:
+            data = np.concatenate([data, np.zeros_like(data)[1:]], axis=0)
+        s = (data.shape[0] + 1) // 2
+        self._H = NumpyHankelOperator(data[:s], r=data[s-1:])
+        self._last_sv_U_V = None
+        self._rrf = None
+
+    def _init_rrf(self):
+        self._rrf = RandomizedRangeFinder(
+            self._H,
+            power_iterations=self.power_iterations,
+            block_size=self.block_size,
+            qr_method=self.qr_method,
+            dtype=self.data.dtype,
+            qr_opts=self.qr_opts,
+        )
+        self._rrf._draw_samples = self._draw_samples
+
+    def _draw_samples(self, num):
+        self._rrf.logger.info(f'Taking {num} samples ...')
+        # faster way of computing the random samples
+        dtype = self.data.dtype
+        V = np.zeros((self._H._circulant.source.dim, num), dtype=dtype)
+        V[:self._H.source.dim] = self._H.source.random(num, distribution='normal').to_numpy().T
+        return self._H.range.make_array(self._H._circulant._circular_matvec(V)[:, :self._H.range.dim])
+
+    def reduce(self, r=None, tol=None):
+        if self._rrf is None:
+            self._init_rrf()
+        last_basis_size = len(self._rrf.Q[-1])
+        Q = self._rrf.find_range(basis_size=r, tol=tol)
+        r = len(Q) if r is None else r
+        if r > last_basis_size:
+            self.logger.info('Projecting onto reduced space ...')
+            B = self._H.apply_adjoint(Q).to_numpy()
+            self.logger.info(f'Computing reduced SVD of size {B.shape[0]}x{B.shape[1]} ...')
+            Ub, sv, Vh = spla.svd(B, full_matrices=False)
+            self.logger.info('Lifting left singular vectors ...')
+            U = Q.lincomb(Ub.T)
+            self._last_sv_U_V = (sv, U.to_numpy().T, Vh.T)
+        else:
+            self.logger.info('Smaller model order requested. Reusing last SVD.')
+        sv, U, V = self._last_sv_U_V
+        sv, U, V = sv[:r], U[:, :r], V[:, :r]
+
+        self.logger.info(f'Constructing reduced realization of order {r} ...')
+        _, p, m = self.data.shape
+        A, B, C, D = self._construct_abcd(sv, U, V, self.num_right or m, self.num_left or p)
+
+        if self.num_left:
+            self.logger.info('Backprojecting tangential output directions ...')
+            W1 = self.output_projector(self.num_left)
+            C = project(C, source_basis=None, range_basis=C.range.from_numpy(W1))
+        if self.num_right:
+            self.logger.info('Backprojecting tangential input directions ...')
+            W2 = self.input_projector(self.num_right)
+            B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
+
+        return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
                         presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv)})
