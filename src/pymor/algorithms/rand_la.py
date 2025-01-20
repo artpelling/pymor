@@ -72,10 +72,10 @@ class RandomizedRangeFinder(BasicObject):
     def _draw_samples(self, num):
         self.logger.info(f'Taking {num} samples ...')
         # returns samples of the range of A
-        V = self.A.source.random(num, distribution='normal')
+        V = self.A.source.random(num, distribution='normal').to_numpy().T.astype(self.dtype)
         if self.iscomplex:
             V += 1j*self.A.source.random(num, distribution='normal')
-        return self.A.apply(V)
+        return self.A.apply(self.A.source.make_array(V.T))
 
     def _qr_update(self, Q, R, offset):
         r"""Update the QR decomposition.
