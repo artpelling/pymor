@@ -191,7 +191,7 @@ class ERAReductor(CacheableObject):
 
         return np.sqrt(err)
 
-    def _construct_abcd(self, sv, U, V, m, p, num_left, num_right):
+    def _construct_realization(self, sv, U, V, m, p, num_left, num_right):
         m, p = num_right or m, num_left or p
         sqsv = np.sqrt(sv)
         A, *_ = spla.lstsq(U[: -p], U[p:])
@@ -206,7 +206,9 @@ class ERAReductor(CacheableObject):
             self.logger.info('Backprojecting tangential input directions ...')
             W2 = self.input_projector(num_right)
             B = project(B, source_basis=B.source.from_numpy(W2), range_basis=None)
-        return A, B, C, self.feedthrough
+
+        return LTIModel(A, B, C, D=self.feedthrough, sampling_time=self.sampling_time,
+                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
 
     def reduce(self, r=None, tol=None, num_left=None, num_right=None):
         """Construct a minimal realization.
@@ -251,10 +253,7 @@ class ERAReductor(CacheableObject):
         sv, U, V = sv[:r], U[:, :r], V[:, :r]
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
-        A, B, C, D = self._construct_abcd(sv, U, V, m, p, num_left, num_right)
-
-        return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
-                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
+        return self._construct_realiation(sv, U, V, m, p, num_left, num_right)
 
 
 class RandomizedERAReductor(ERAReductor):
@@ -321,7 +320,4 @@ class RandomizedERAReductor(ERAReductor):
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
         _, p, m = self.data.shape
-        A, B, C, D = self._construct_abcd(sv, U, V, m, p, self.num_left, self.num_right)
-
-        return LTIModel(A, B, C, D=D, sampling_time=self.sampling_time,
-                        presets={'o_dense': np.diag(sv), 'c_dense': np.diag(sv), 'hsv': sv})
+        return self._construct_realiation(sv, U, V, m, p, self.num_left, self.num_right)
