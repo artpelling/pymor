@@ -260,11 +260,10 @@ class RandomizedERAReductor(ERAReductor):
     def __init__(self, data, sampling_time, force_stability=True, feedthrough=None, allow_transpose=True, rrf_opts={},
                  num_left=None, num_right=None):
         super().__init__(data, sampling_time, force_stability=force_stability, feedthrough=feedthrough)
-        data = data.copy()
+        #data = data.copy()
         if num_left is not None or num_right is not None:
             self.logger.info('Computing the projected Markov parameters ...')
             data = self._project_markov_parameters(num_left, num_right)
-        self.__auto_init(locals())
         if self.force_stability:
             data = np.concatenate([data, np.zeros_like(data)[1:]], axis=0)
         s = (data.shape[0] + 1) // 2
@@ -274,7 +273,7 @@ class RandomizedERAReductor(ERAReductor):
             self.logger.info('Using transposed formulation.')
             self._H = self._H.H
         self._last_sv_U_V = None
-        self._rrf = RandomizedRangeFinder(self._H, **self.rrf_opts)
+        self._rrf = RandomizedRangeFinder(self._H, **rrf_opts)
         self._rrf._draw_samples = self._draw_samples
 
     @cached
