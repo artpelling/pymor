@@ -257,10 +257,9 @@ class ERAReductor(CacheableObject):
 
 
 class RandomizedERAReductor(ERAReductor):
-    def __init__(self, data, sampling_time, force_stability=True, feedthrough=None, transpose=True, rrf_opts={},
+    def __init__(self, data, sampling_time, force_stability=True, feedthrough=None, allow_transpose=True, rrf_opts={},
                  num_left=None, num_right=None):
-        super().__init__(data, sampling_time, force_stability, feedthrough)
-        self.logger.setLevel('INFO')
+        super().__init__(data, sampling_time, force_stability=force_stability, feedthrough=feedthrough)
         data = data.copy()
         if num_left is not None or num_right is not None:
             self.logger.info('Computing the projected Markov parameters ...')
@@ -269,13 +268,13 @@ class RandomizedERAReductor(ERAReductor):
         if self.force_stability:
             data = np.concatenate([data, np.zeros_like(data)[1:]], axis=0)
         s = (data.shape[0] + 1) // 2
-        self._transpose = (data.shape[1] < data.shape[2]) if transpose else False
+        self._transpose = (data.shape[1] < data.shape[2]) if allow_transpose else False
         self._H = NumpyHankelOperator(data[:s], r=data[s-1:])
         if self._transpose:
-            self.logger.info2('Using transposed formulation.')
+            self.logger.info('Using transposed formulation.')
             self._H = self._H.H
         self._last_sv_U_V = None
-        self._rrf = RandomizedRangeFinder(self.H, **self.rrf_opts)
+        self._rrf = RandomizedRangeFinder(self._H, **self.rrf_opts)
         self._rrf._draw_samples = self._draw_samples
 
     @cached
