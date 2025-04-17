@@ -72,10 +72,8 @@ class RandomizedRangeFinder(BasicObject):
     @defaults('num_testvecs', 'failure_tolerance', 'qr_method', 'error_estimator')
     def __init__(self, A, range_product=None, source_product=None, A_adj=None, power_iterations=0, block_size=None,
                  failure_tolerance=1e-15, num_testvecs=20, lambda_min=None, iscomplex=False, qr_method='gram_schmidt',
-                 error_estimator='bs18', dtype=None, qr_opts={}):
+                 error_estimator='bs18', qr_opts={}):
         assert isinstance(A, Operator)
-        if dtype is None:
-            dtype = np.complex128 if iscomplex else np.float64
         assert range_product is None or isinstance(range_product, Operator)
         assert source_product is None or isinstance(source_product, Operator)
         assert lambda_min is None or lambda_min > 0
@@ -91,19 +89,16 @@ class RandomizedRangeFinder(BasicObject):
         self.__auto_init(locals())
         self.estimate_error = self._bs18_estimator if error_estimator == 'bs18' else self._loo_estimator
         # the test vectors for 'bs18' or the drawn samples for 'loo'.
-        if error_estimator == 'bs18':
-            self.Omega = A.range.empty()
-        else:
-            self.Omega = A.range.make_array(np.empty((0, A.range.dim), dtype=dtype))
+        self.Omega = A.range.empty()
         self.estimator_last_basis_size, self.last_estimated_error = 0, np.inf
-        self.Q = [A.range.make_array(np.empty((0, A.range.dim), dtype=dtype)) for _ in range(power_iterations+1)]
-        self.R = [np.empty((0,0), dtype=dtype) for _ in range(power_iterations+1)]
+        self.Q = [A.range.make_array(np.empty((0, A.range.dim))) for _ in range(power_iterations+1)]
+        self.R = [np.empty((0,0)) for _ in range(power_iterations+1)]
 
     def _draw_samples(self, num):
         """Compute `num` samples of the operator range."""
-        V = self.A.source.random(num, distribution='normal').to_numpy().T.astype(self.dtype)
+        V = self.A.source.random(num, distribution='normal').to_numpy().T
         if self.iscomplex:
-            V += 1j*self.A.source.random(num, distribution='normal').to_numpy().T.astype(self.dtype)
+            V += 1j*self.A.source.random(num, distribution='normal').to_numpy().T
         return self.A.apply(self.A.source.make_array(V.T))
 
     def _qr_update(self, Q, R, offset):
