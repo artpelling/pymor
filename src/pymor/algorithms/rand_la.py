@@ -91,15 +91,15 @@ class RandomizedRangeFinder(BasicObject):
         # the test vectors for 'bs18' or the drawn samples for 'loo'.
         self.Omega = A.range.empty()
         self.estimator_last_basis_size, self.last_estimated_error = 0, np.inf
-        self.Q = [A.range.make_array(np.empty((0, A.range.dim))) for _ in range(power_iterations+1)]
+        self.Q = [A.range.empty() for _ in range(power_iterations+1)]
         self.R = [np.empty((0,0)) for _ in range(power_iterations+1)]
 
     def _draw_samples(self, num):
         """Compute `num` samples of the operator range."""
-        V = self.A.source.random(num, distribution='normal').to_numpy().T
+        V = self.A.source.random(num, distribution='normal')
         if self.iscomplex:
-            V += 1j*self.A.source.random(num, distribution='normal').to_numpy().T
-        return self.A.apply(self.A.source.make_array(V.T))
+            V += 1j*self.A.source.random(num, distribution='normal')
+        return self.A.apply(V)
 
     def _qr_update(self, Q, R, offset):
         r"""Update the QR decomposition.
