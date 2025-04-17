@@ -253,7 +253,7 @@ class ERAReductor(CacheableObject):
         sv, U, V = sv[:r], U[:, :r], V[:, :r]
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
-        return self._construct_realiation(sv, U, V, m, p, num_left, num_right)
+        return self._construct_realization(sv, U, V, m, p, num_left, num_right)
 
 
 class RandomizedERAReductor(ERAReductor):
@@ -320,4 +320,4 @@ class RandomizedERAReductor(ERAReductor):
 
         self.logger.info(f'Constructing reduced realization of order {r} ...')
         _, p, m = self.data.shape
-        return self._construct_realiation(sv, U, V, m, p, self.num_left, self.num_right)
+        return self._construct_realization(sv, U, V, m, p, self.num_left, self.num_right)
