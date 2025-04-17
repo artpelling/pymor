@@ -260,6 +260,7 @@ class RandomizedERAReductor(ERAReductor):
     def __init__(self, data, sampling_time, force_stability=True, feedthrough=None, allow_transpose=True, rrf_opts={},
                  num_left=None, num_right=None):
         super().__init__(data, sampling_time, force_stability=force_stability, feedthrough=feedthrough)
+        self.num_left, self.num_right = num_left, num_right
         #data = data.copy()
         if num_left is not None or num_right is not None:
             self.logger.info('Computing the projected Markov parameters ...')
