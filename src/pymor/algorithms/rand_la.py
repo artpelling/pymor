@@ -88,8 +88,7 @@ class RandomizedRangeFinder(BasicObject):
 
         self.__auto_init(locals())
         self.estimate_error = self._bs18_estimator if error_estimator == 'bs18' else self._loo_estimator
-        # the test vectors for 'bs18' or the drawn samples for 'loo'.
-        self.Omega = A.range.empty()
+        self.Omega = A.range.empty()  # the test vectors for 'bs18' or the drawn samples for 'loo'.
         self.estimator_last_basis_size, self.last_estimated_error = 0, np.inf
         self.Q = [A.range.empty() for _ in range(power_iterations+1)]
         self.R = [np.empty((0,0)) for _ in range(power_iterations+1)]
